@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+backend/.env
+
+# Apify / Crawlee local storage
+storage/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Playwright browsers cache
+.playwright/
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Build output
+dist/
+build/
+
+# Docker volumes (if any local data dirs)
+postgres-data/
+
+# Claude local session
+.claude/

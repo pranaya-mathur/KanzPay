@@ -1,0 +1,6 @@
+# Use backend compose directly to avoid duplicate Postgres on port 5435:
+#   npm run db:up
+# Or from backend/: docker compose up -d
+
+include:
+  - path: backend/docker-compose.yml

@@ -1,0 +1,28 @@
+{
+  "name": "kanzpay-scraper",
+  "version": "1.0.0",
+  "description": "KanzPay UAE Payment Optimizer Scraper",
+  "main": "src/main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.js",
+    "local": "node src/main.js",
+    "test:parsers": "node scripts/test-parsers.js",
+    "test:discovery": "node scripts/test-discovery.js",
+    "test:quality": "node --test tests/parser-quality.test.js",
+    "test": "npm run test:parsers && npm run test:discovery && npm run test:quality",
+    "db:up": "docker compose -f backend/docker-compose.yml up -d",
+    "db:down": "docker compose -f backend/docker-compose.yml down",
+    "backend:start": "npm --prefix backend start",
+    "backend:ingest": "npm --prefix backend run pipeline:ingest",
+    "pipeline": "npm run db:up && npm run backend:ingest",
+    "postinstall": "npx playwright install chromium || true"
+  },
+  "dependencies": {
+    "apify": "^3.2.0",
+    "crawlee": "^3.11.0",
+    "playwright": "^1.45.0"
+  },
+  "author": "KanzPay",
+  "license": "ISC"
+}

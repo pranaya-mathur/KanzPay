@@ -1,0 +1,138 @@
+{
+  "title": "KanzPay Scraper Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "startUrls": {
+      "title": "Start URLs",
+      "type": "array",
+      "description": "Public offer pages to crawl (scheduled ingestion, not per-transaction)",
+      "editor": "requestListSources",
+      "default": []
+    },
+    "crawlerMode": {
+      "title": "Crawler Mode",
+      "type": "string",
+      "enum": ["auto", "cheerio", "playwright"],
+      "default": "auto",
+      "description": "auto = Cheerio first, Playwright retry on JS shells"
+    },
+    "debug": {
+      "title": "Debug",
+      "type": "boolean",
+      "default": false
+    },
+    "dryRun": {
+      "title": "Dry Run",
+      "type": "boolean",
+      "default": false,
+      "description": "Parse and log without writing dataset"
+    },
+    "saveSnapshots": {
+      "title": "Save Snapshots",
+      "type": "boolean",
+      "default": false,
+      "description": "Save KV snapshots when zero offers or in debug"
+    },
+    "debugUrl": {
+      "title": "Debug URL",
+      "type": "string",
+      "description": "Single URL test (overrides startUrls and skips discovery)"
+    },
+    "debugSourceType": {
+      "title": "Debug Source Type",
+      "type": "string",
+      "enum": ["emiratesNbd", "visaUAE", "fab", "couponFeed", "merchant"]
+    },
+    "maxDepth": {
+      "title": "Max Depth",
+      "type": "integer",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 5
+    },
+    "maxRequestsPerCrawl": {
+      "title": "Max Requests",
+      "type": "integer",
+      "default": 50
+    },
+    "allowedDomains": {
+      "title": "Allowed Domains",
+      "type": "array",
+      "editor": "stringList",
+      "description": "Applied to discovery filtering and crawl enqueue"
+    },
+    "denyPatterns": {
+      "title": "Deny Patterns",
+      "type": "array",
+      "editor": "stringList",
+      "description": "Regex patterns — matching URLs are not crawled"
+    },
+    "includeText": {
+      "title": "Include Text",
+      "type": "boolean",
+      "default": true
+    },
+    "includeHtml": {
+      "title": "Include HTML",
+      "type": "boolean",
+      "default": false
+    },
+    "sourceHints": {
+      "title": "Source Hints",
+      "type": "array",
+      "editor": "stringList",
+      "items": {
+        "type": "string",
+        "enum": ["emiratesNbd", "visaUAE", "fab", "couponFeed", "merchant"]
+      }
+    },
+    "discoveryEnabled": {
+      "title": "Discovery Enabled",
+      "type": "boolean",
+      "default": false,
+      "description": "Run Google SERP discovery before crawl (scheduled ingestion only)"
+    },
+    "discoveryQueries": {
+      "title": "Discovery Queries",
+      "type": "array",
+      "editor": "stringList",
+      "description": "Google search queries for public offer URL discovery",
+      "default": [
+        "Emirates NBD deals UAE",
+        "Visa UAE offers",
+        "FAB credit card offers UAE",
+        "Noon bank offer UAE",
+        "UAE coupon code"
+      ]
+    },
+    "discoveryMaxResults": {
+      "title": "Discovery Max Results",
+      "type": "integer",
+      "default": 10,
+      "minimum": 1,
+      "maximum": 30,
+      "description": "Max organic results per query per page"
+    },
+    "discoveryPages": {
+      "title": "Discovery Pages",
+      "type": "integer",
+      "default": 1,
+      "minimum": 1,
+      "maximum": 5,
+      "description": "Google SERP pages to fetch per query (pagination)"
+    },
+    "discoveryCountry": {
+      "title": "Discovery Country",
+      "type": "string",
+      "default": "ae",
+      "description": "Google gl parameter (UAE = ae)"
+    },
+    "discoveryLanguage": {
+      "title": "Discovery Language",
+      "type": "string",
+      "default": "en",
+      "description": "Google hl parameter"
+    }
+  }
+}

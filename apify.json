@@ -1,0 +1,6 @@
+{
+  "name": "kanzpay-scraper",
+  "version": "2.0.0",
+  "buildTag": "latest",
+  "template": "project_empty"
+}

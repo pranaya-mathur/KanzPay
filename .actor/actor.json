@@ -1,0 +1,15 @@
+{
+  "actorSpecification": 1,
+  "name": "kanzpay-scraper",
+  "title": "KanzPay Public Offers Scraper",
+  "description": "Scrapes public UAE offer pages for KanzPay.",
+  "version": "2.1",
+  "meta": {
+    "templateId": "project-empty"
+  },
+  "input": "./input_schema.json",
+  "dockerfile": "../Dockerfile",
+  "storages": {
+    "dataset": "./dataset_schema.json"
+  }
+}

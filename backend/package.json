@@ -1,0 +1,36 @@
+{
+  "name": "kanzpay-backend",
+  "version": "1.0.0",
+  "description": "KanzPay offer ingestion, confidence scoring, and query API",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "stop": "lsof -ti :5436 | xargs kill 2>/dev/null || true",
+    "restart": "npm run stop && npm start",
+    "dev": "node --watch src/index.js",
+    "migrate": "node src/db/migrate.js",
+    "ingest": "node src/jobs/ingest-crawl-results.job.js",
+    "pipeline:ingest": "node src/jobs/run-ingestion-pipeline.job.js",
+    "review-discovery": "node src/jobs/review-discovery-results.job.js",
+    "discovery:plan": "node ../src/jobs/crawl-discovery-sources.job.js",
+    "refresh": "node src/jobs/refresh-offers.job.js",
+    "validate-sources": "node src/jobs/validate-sources.job.js",
+    "refresh-sources": "node src/jobs/refresh-source-health.job.js",
+    "crawl-plan": "node -e \"import('./src/modules/crawler/crawl-targets.service.js').then(m=>m.generateCrawlTargets({writeInput:true})).then(r=>console.log(JSON.stringify(r.plan,null,2)))\"",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "openai": "^4.52.0",
+    "pg": "^8.13.0",
+    "zod": "^3.23.8"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "ISC"
+}

@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kanzpay
+      POSTGRES_PASSWORD: kanzpay
+      POSTGRES_DB: kanzpay
+    ports:
+      - "5435:5432"
+    volumes:
+      - kanzpay_pg:/var/lib/postgresql/data
+
+volumes:
+  kanzpay_pg:
