@@ -8,6 +8,7 @@ import { extractMatch, PATTERNS, detectDiscountType } from '../utils/extractPatt
 import { cleanText } from '../utils/normalize.js';
 import { scoreConfidence } from '../utils/confidence.js';
 import { extractJsonLd, offersFromJsonLd } from '../extraction/structured-data-extractor.js';
+import { isPageChromeTitle, isCookieOrPrivacyNoise } from '../validation/quality-rules.js';
 
 /** Domains/paths that indicate coupon feeds — NOT bank "deals" pages. */
 const COUPON_DOMAIN_RE = /(?:coupon|cuponation|groupon|picodi|wethrift|voucher|promocode|discountcode|rebates?|cashbackportal|smiles|noon)/i;
@@ -96,6 +97,7 @@ export function parseCouponFeed($, url, rawText, rawHtml, meta = {}) {
                 || sanitizeCouponCode(extractMatch(item.text(), PATTERNS.couponCode));
             const link = item.find('a[href]').first().attr('href');
             if (!title || title.length < 4) return;
+            if (isPageChromeTitle(title) || isCookieOrPrivacyNoise(title)) return;
             if (code && seenCodes.has(code)) return;
             if (code) seenCodes.add(code);
 
@@ -116,7 +118,8 @@ export function parseCouponFeed($, url, rawText, rawHtml, meta = {}) {
         const code = sanitizeCouponCode(extractMatch(rawText, PATTERNS.couponCode))
             || sanitizeCouponCode(cleanText($?.('.coupon-code, .promo-code, [class*="coupon-code"]').text()));
 
-        if (title && (code || /%\s*off|discount/i.test(rawText))) {
+        if (title && (code || /%\s*off|discount/i.test(rawText))
+            && !isPageChromeTitle(title) && !isCookieOrPrivacyNoise(`${title} ${rawText}`)) {
             offers.push(buildCouponOffer({
                 url, title, merchant, code,
                 description: cleanText($?.('p').text()), rawText, meta,
@@ -126,7 +129,9 @@ export function parseCouponFeed($, url, rawText, rawHtml, meta = {}) {
         }
     }
 
-    return offers.filter((o) => o.offerTitle || isValidCouponCode(o.couponCode));
+    return offers.filter((o) => (o.offerTitle || isValidCouponCode(o.couponCode))
+        && !isPageChromeTitle(o.offerTitle)
+        && !isCookieOrPrivacyNoise(`${o.offerTitle || ''} ${o.rawText || ''}`));
 }
 
 function sanitizeCouponCode(code) {

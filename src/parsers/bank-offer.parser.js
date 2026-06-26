@@ -139,6 +139,32 @@ export function parseBankOffer($, url, rawText, rawHtml, meta = {}) {
             }));
         });
 
+        // HSBC slug links deferred to hsbcParser detail crawl
+        if (bankMeta.sourceType === 'hsbc') {
+            // no slug-only extraction
+        } else if (/special-offers|\/offers\//i.test(url)) {
+            const slugOffers = parseSlugOfferLinks($, url, bankMeta, meta, reason, seen);
+            for (const o of slugOffers) {
+                const key = `${o.sourceUrl}::${o.offerTitle}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    offers.push(o);
+                }
+            }
+        }
+
+        // Mashreq neo offers hub: /neo/offers/* detail links
+        if (/mashreq\.com.*\/offers/i.test(url)) {
+            const mashreqOffers = parseMashreqOfferLinks($, url, bankMeta, meta, reason, seen);
+            for (const o of mashreqOffers) {
+                const key = `${o.sourceUrl}::${o.offerTitle}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    offers.push(o);
+                }
+            }
+        }
+
         // Fallback: scrape heading+link pairs if no cards matched
         if (offers.length === 0) {
             $('a[href]').each((_, el) => {
@@ -227,7 +253,8 @@ function buildBankOffer({ url, title, merchant, description, rawText, meta, bank
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isListingPage(url, $) {
-    if (/\/offers?\/?$|\/promotions?\/?$|\/deals?\/?$|\/rewards?\/?$|\/perks?\/?$/i.test(url)) return true;
+    if (/\/(?:special-)?offers?\/?$|\/promotions?\/?$|\/deals?\/?$|\/rewards?\/?$|\/perks?\/?$/i.test(url)) return true;
+    if (/\/neo\/offers\/?$/i.test(url)) return true;
     if ($) {
         const cardCount = $(CARD_SELECTORS).length;
         if (cardCount >= 2) return true;
@@ -237,7 +264,71 @@ function isListingPage(url, $) {
 
 function hasOfferSignal(text, title) {
     const combined = `${title} ${text}`;
-    return /cashback|%\s*off|AED\s*\d|\d+\s*%|promo\s*code|valid\s+until|minimum\s+spend|discount|coupon|save|reward/i.test(combined);
+    return /cashback|%\s*off|AED\s*\d|\d+\s*%|promo\s*code|valid\s+until|minimum\s+spend|discount|coupon|save|reward|complimentary|instalment|installment|know more|flexi|welcome bonus|miles|lounge/i.test(combined);
+}
+
+/** Parse HSBC-style /special-offers/{merchant}-{description}-{date}/ links. */
+function parseSlugOfferLinks($, baseUrl, bankMeta, meta, reason, seen) {
+    const offers = [];
+    $('a[href*="/special-offers/"], a[href*="/offers/"]').each((_, el) => {
+        const href = $(el).attr('href');
+        if (!href || href.endsWith('/special-offers/') || href.endsWith('/offers/')) return;
+        const absUrl = safeResolve(href, baseUrl);
+        if (!absUrl || seen.has(absUrl)) return;
+
+        const slug = absUrl.split('/').filter(Boolean).pop() || '';
+        if (slug.length < 12 || !/-\d{2}-\d{2}-\d{4}$/.test(slug)) return;
+
+        seen.add(absUrl);
+        const dateMatch = slug.match(/-(\d{2}-\d{2}-\d{4})$/);
+        const validTo = dateMatch ? dateMatch[1].split('-').reverse().join('-') : null;
+        const body = slug.replace(/-\d{2}-\d{2}-\d{4}$/, '');
+        const parts = body.split('-');
+        const merchant = parts[0].replace(/\b\w/g, (c) => c.toUpperCase());
+        const titleText = body.replace(/-/g, ' ');
+
+        const offer = buildBankOffer({
+            url: absUrl,
+            title: titleText,
+            merchant,
+            description: cleanText($(el).text()) || titleText,
+            rawText: titleText,
+            meta,
+            bankMeta,
+            reason: `${reason}; mode=slug-link`,
+        });
+        if (validTo) offer.validTo = validTo;
+        offers.push(offer);
+    });
+    return offers;
+}
+
+/** Mashreq neo offers listing — anchor links under /neo/offers/. */
+function parseMashreqOfferLinks($, baseUrl, bankMeta, meta, reason, seen) {
+    const offers = [];
+    $('a[href*="/neo/offers/"]').each((_, el) => {
+        const href = $(el).attr('href');
+        const absUrl = safeResolve(href, baseUrl);
+        if (!absUrl || seen.has(absUrl)) return;
+        if (absUrl.replace(/\/$/, '') === baseUrl.replace(/\/$/, '')) return;
+
+        const title = cleanText($(el).text());
+        if (!title || title.length < 5 || /^know more$/i.test(title)) return;
+        if (!hasOfferSignal(title, title)) return;
+
+        seen.add(absUrl);
+        offers.push(buildBankOffer({
+            url: absUrl,
+            title,
+            merchant: inferMerchant(title) || title.split(/\s+/).slice(0, 3).join(' '),
+            description: '',
+            rawText: title,
+            meta,
+            bankMeta,
+            reason: `${reason}; mode=mashreq-offer-link`,
+        }));
+    });
+    return offers;
 }
 
 function inferMerchant(title) {

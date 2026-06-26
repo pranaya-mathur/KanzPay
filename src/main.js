@@ -5,6 +5,7 @@ import { runDiscovery, mergeCrawlSeeds } from './crawlers/discoveryCrawler.js';
 import {
     processPage, enqueueLinks, getDedupeStats, getQualityStats, saveRunSummary,
 } from './crawlers/genericCrawler.js';
+import { getSourceBudgetStats } from './crawlers/source-request-budget.js';
 import { selectCrawlSources } from './sources/source-selector.js';
 
 await Actor.init();
@@ -124,13 +125,23 @@ if (shouldRetryWithBrowser) {
 
 const dedupeStats = getDedupeStats();
 const qualityStats = getQualityStats();
+const budgetStats = getSourceBudgetStats();
 log.info(`Crawl complete uniqueOffers=${dedupeStats.unique} duplicatesSkipped=${dedupeStats.duplicatesSkipped}`);
 log.info(`Quality by source: ${JSON.stringify(qualityStats)}`);
+log.info(`Budget by source: ${JSON.stringify(budgetStats)}`);
+const tierASources = ['emiratesNbd', 'adcb', 'mashreq', 'fab', 'dib', 'adib'];
+for (const sourceType of tierASources) {
+    const used = budgetStats[sourceType] || 0;
+    if (used < 5) {
+        log.warning(`Low crawl depth for Tier A source ${sourceType}: ${used} requests`);
+    }
+}
 
 await saveRunSummary(input, {
     initialCrawlerType,
     dedupeStats,
     qualityStats,
+    budgetStats,
     discoveryStats,
     sourceFilter: crawlSelection.sourceFilter,
     dryRun: !!input.dryRun,

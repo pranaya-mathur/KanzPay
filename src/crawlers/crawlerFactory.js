@@ -53,7 +53,27 @@ export function createCrawler(type, { requestHandler, maxRequestsPerCrawl, maxRe
                 launchOptions: { args: ['--disable-gpu', '--no-sandbox'] },
             },
             preNavigationHooks: [
-                async ({ page }) => { page.setDefaultTimeout(30000); },
+                async ({ page, request }) => {
+                    page.setDefaultTimeout(30000);
+                    if (/cbd\.ae/i.test(request.url)) {
+                        await page.setExtraHTTPHeaders({
+                            'Accept-Language': 'en-AE,en;q=0.9',
+                            Referer: 'https://www.cbd.ae/',
+                        });
+                    }
+                    if (/mashreq\.com.*\/neo\/offers/i.test(request.url)) {
+                        request.userData.mashreqApiPayload = null;
+                        page.on('response', async (res) => {
+                            if (!/mashreq\.com\/api\/gql/i.test(res.url()) || res.status() !== 200) return;
+                            try {
+                                const json = await res.json();
+                                if (json?.[0]?.data?.search?.results?.items?.length) {
+                                    request.userData.mashreqApiPayload = json;
+                                }
+                            } catch { /* ignore parse errors */ }
+                        });
+                    }
+                },
             ],
         });
     }

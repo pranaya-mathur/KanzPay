@@ -14,6 +14,7 @@ import { shouldEnqueueUrl } from '../discovery/enqueue-rules.js';
 import { isPdfUrl, extractTextFromPdfBuffer } from '../utils/pdfExtract.js';
 import { SourceQualityTracker } from '../validation/source-validation.js';
 import { resolveRegistry } from '../sources/source-registry.js';
+import { isSourceBudgetExhausted, incrementSourceBudget } from './source-request-budget.js';
 
 const deduplicator = new OfferDeduplicator();
 const qualityTracker = new SourceQualityTracker();
@@ -28,6 +29,12 @@ export async function processPage(ctx) {
     const crawlDepth = request.userData.depth || 0;
     const sourceTypeHint = request.userData.sourceType || null;
     const registry = input.sourceRegistry || resolveRegistry(input);
+
+    if (sourceTypeHint && isSourceBudgetExhausted(sourceTypeHint, registry)) {
+        log.info(`Source budget exhausted for ${sourceTypeHint}, skipping ${url}`);
+        return { offersPushed: 0, needsBrowserRetry: false, validOffers: [] };
+    }
+    if (sourceTypeHint) incrementSourceBudget(sourceTypeHint);
 
     log.info(`[${crawlerType}] depth=${crawlDepth} url=${url}`);
 
@@ -67,9 +74,14 @@ export async function processPage(ctx) {
     const pageLength = rawText.length;
     log.info(`pageLength=${pageLength} orchestrating extraction for ${url}`);
 
+    const extractionMeta = { sourceTypeHint, crawlDepth };
+    if (request.userData.mashreqApiPayload) {
+        extractionMeta.mashreqApiPayload = request.userData.mashreqApiPayload;
+    }
+
     const extraction = orchestrateExtraction(
         url, parsed$, rawText, rawHtml,
-        { sourceTypeHint, crawlDepth },
+        extractionMeta,
         registry,
     );
 
@@ -153,6 +165,11 @@ export async function enqueueLinks(crawlerContext, input) {
             }
             if (input.denyPatterns?.some((p) => new RegExp(p, 'i').test(req.url))) {
                 log.debug(`skip link denyPattern url=${req.url}`);
+                return false;
+            }
+            const childSource = req.userData?.sourceType || sourceType;
+            if (childSource && isSourceBudgetExhausted(childSource, input.sourceRegistry || resolveRegistry(input))) {
+                log.debug(`skip link budget_exhausted source=${childSource} url=${req.url}`);
                 return false;
             }
             req.userData = {

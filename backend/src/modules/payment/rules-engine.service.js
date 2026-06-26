@@ -103,6 +103,9 @@ function evaluateMembershipEligibility(membership, amount) {
  * @returns {{ eligible: boolean, reason?: string, discountAed: number }}
  */
 function evaluateCardOfferEligibility(offer, card, ctx) {
+    if ((offer.categories || []).includes('touchpoints_burn')) {
+        return { eligible: false, reason: 'touchpoints_burn_excluded', discountAed: 0 };
+    }
     // Reject generic page headers that have no merchant scope and no bank scope.
     // These are scraped category pages (e.g. "Cards & Rewards"), not real card offers.
     if (!offer.merchantName && !offer.bankName) {
@@ -378,9 +381,7 @@ export function evaluatePaymentCombinations(ctx, applicableOffers = []) {
     // Card combinations: card × loyalty × coupon × membership
     for (const card of cardOptions) {
         // Only pass offers that are scoped to this specific card's bank or merchant
-        const cardOffers = applicableOffers.filter((o) =>
-            o.bankName && bankNamesMatch(o.bankName, card.bankName),
-        );
+        const cardOffers = applicableOffers.filter((o) => isOfferForCard(o, card));
 
         for (const loyalty of loyaltyOptions) {
             for (const coupon of couponOptions) {
@@ -543,6 +544,16 @@ export function buildInstrumentSelection(ctx, combinationsResult) {
 
 function round2(n) {
     return Math.round(n * 100) / 100;
+}
+
+function isOfferForCard(offer, card) {
+    if ((offer.categories || []).includes('touchpoints_burn')) return false;
+    if (offer.bankName && card.bankName && bankNamesMatch(offer.bankName, card.bankName)) return true;
+    if (!offer.bankName && offer.cardName && card.cardNetwork
+        && offer.cardName.toLowerCase().includes(card.cardNetwork.toLowerCase())) {
+        return true;
+    }
+    return false;
 }
 
 function bankNamesMatch(a, b) {

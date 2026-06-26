@@ -3,6 +3,7 @@
  */
 import { PARSER_VERSION } from '../sources/source-registry.js';
 import { matchEmiratesNbd, parseEmiratesNbd } from './emiratesNbdParser.js';
+import { isEnbdListingNoise } from '../validation/quality-rules.js';
 
 export const matchEnbd = matchEmiratesNbd;
 
@@ -12,7 +13,8 @@ export function parseEnbd($, url, rawText, rawHtml, meta = {}) {
     }
 
     const offers = parseEmiratesNbd($, url, rawText, rawHtml, meta)
-        .filter((o) => !/\/campaigns\//i.test(o.sourceUrl || url));
+        .filter((o) => !/\/campaigns\//i.test(o.sourceUrl || url))
+        .filter((o) => !isEnbdListingNoise(o.merchantName, o.offerTitle));
 
     return enrich(offers, meta);
 }

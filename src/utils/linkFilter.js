@@ -22,7 +22,7 @@ const COUPON_SOURCE_TYPES = new Set([
 ]);
 
 const BANK_OFFER_SOURCE_TYPES = new Set([
-    'adcb', 'mashreq', 'rakBank', 'dib', 'hsbc', 'citibank', 'cbd', 'mastercard',
+    'adcb', 'mashreq', 'rakBank', 'dib', 'hsbc', 'citibank', 'cbd', 'mastercard', 'adib', 'fab',
 ]);
 
 function isCouponSourceType(sourceType) {
@@ -78,6 +78,25 @@ export function shouldFollowLink(url, sourceType) {
             : { follow: false, reason: 'fab:non-offer-path' };
     }
 
+    if (sourceType === 'hsbc' || lower.includes('hsbc.ae')) {
+        if (/\/special-offers\//i.test(lower)) {
+            return { follow: true, reason: 'hsbc:offer-path' };
+        }
+        const hsbcOffer = /\/offers?\/|\/promotions?\/|\/deals?\/|\/rewards?\/|\/benefits?\//i.test(lower)
+            || OFFER_KEYWORDS.some((kw) => lower.includes(kw));
+        return hsbcOffer
+            ? { follow: true, reason: 'hsbc:offer-path' }
+            : { follow: false, reason: 'hsbc:non-offer-path' };
+    }
+
+    if (sourceType === 'adib' || lower.includes('adib.ae')) {
+        const adibOffer = /\/offers?\/|\/promotions?\/|\/cards?\//i.test(lower)
+            || OFFER_KEYWORDS.some((kw) => lower.includes(kw));
+        return adibOffer
+            ? { follow: true, reason: 'adib:offer-path' }
+            : { follow: false, reason: 'adib:non-offer-path' };
+    }
+
     if (sourceType === 'couponFeed' || isCouponSourceType(sourceType)) {
         const couponOffer = OFFER_KEYWORDS.some((kw) => lower.includes(kw))
             || /\/(?:coupons?|promo|deals?|vouchers?|offers?|stores?|brands?)\//i.test(lower);
@@ -110,6 +129,12 @@ export function buildEnqueueSelector(sourceType) {
     }
     if (sourceType === 'fab') {
         return 'a[href*="offer"], a[href*="promo"]';
+    }
+    if (sourceType === 'hsbc') {
+        return 'a[href*="/special-offers/"]';
+    }
+    if (sourceType === 'mashreq') {
+        return 'a[href*="/neo/offers/"], a[href*="/offers/"]';
     }
     if (isCouponSourceType(sourceType)) {
         return 'a[href*="coupon"], a[href*="deal"], a[href*="promo"], a[href*="offer"], a[href*="store"]';

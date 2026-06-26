@@ -5,6 +5,15 @@ const PROBATION_MIN_SCORE = 0.45;
 const MAX_QUARANTINE_RATE_APPROVED = 0.15;
 const MIN_MERCHANT_YIELD_APPROVED = 0.6;
 
+/** Tier A banks — locked in DB; must never auto-reject via health refresh. */
+export const TIER_A_SOURCE_TYPES = new Set([
+    'emiratesNbd', 'adcb', 'mashreq', 'fab', 'dib', 'adib',
+]);
+
+export function isTierASourceType(sourceType) {
+    return TIER_A_SOURCE_TYPES.has(sourceType);
+}
+
 /**
  * Classify source status from computed score and metrics.
  * Manual overrides via API are always allowed.
@@ -22,13 +31,13 @@ export function classifySourceStatus(score, metrics = {}, currentStatus = null) 
 
     // Hard defaults for known source patterns before enough samples
     if (sampleSize < 5 && sourceType) {
-        // Tier 1 — approved immediately (well-structured, known parser profiles)
-        if (['emiratesNbd', 'adcb', 'mashreq'].includes(sourceType)) {
-            return { status: 'approved', reason: `${sourceType}: known strong template (bootstrap)` };
+        // Tier A — approved immediately (dedicated parser profiles)
+        if (isTierASourceType(sourceType)) {
+            return { status: 'approved', reason: `${sourceType}: tier_a_bootstrap` };
         }
-        // Tier 2 — probation until yield/completeness confirms quality
+        // Tier B — probation until yield/completeness confirms quality
         if ([
-            'fab', 'visaUAE', 'rakBank', 'dib', 'hsbc', 'citibank', 'cbd', 'mastercard',
+            'visaUAE', 'rakBank', 'hsbc', 'citibank', 'cbd', 'mastercard',
             'groupon', 'cuponation', 'picodi', 'couponsAe', 'wethrift', 'smiles', 'noon',
         ].includes(sourceType)) {
             return { status: 'probation', reason: `${sourceType}: probation pending parser validation` };
@@ -50,6 +59,14 @@ export function classifySourceStatus(score, metrics = {}, currentStatus = null) 
     if (score >= PROBATION_MIN_SCORE) {
         reasons.push(`score=${score}>=${PROBATION_MIN_SCORE}`);
         return { status: 'probation', reason: reasons.join('; ') || 'Inconsistent yield or completeness' };
+    }
+
+    // Tier A locked sources never auto-reject; worst case stays on probation
+    if (isTierASourceType(sourceType)) {
+        return {
+            status: 'probation',
+            reason: `tier_a_floor: score=${score}<${PROBATION_MIN_SCORE}`,
+        };
     }
 
     return {

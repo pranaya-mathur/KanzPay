@@ -42,7 +42,19 @@ function detectByUrl(pathname, sourceType) {
         if (/\/visa-offers-and-perks\/.+\/\d+\/?$/i.test(pathname)) return 'detail';
     }
     if (sourceType === 'fab') {
-        if (/\/offers?\/?$/.test(pathname)) return 'listing';
+        if (/\/credit-cards\/offers(?:\/[^/]+)?\/?$/i.test(pathname)) return 'listing';
+    }
+    if (sourceType === 'hsbc') {
+        if (/\/special-offers\/[^/]+/i.test(pathname) && !/\/special-offers\/?$/i.test(pathname)) return 'detail';
+        if (/\/special-offers\/?$/i.test(pathname)) return 'listing';
+    }
+    if (sourceType === 'mashreq') {
+        if (/\/neo\/offers\/?$/i.test(pathname)) return 'listing';
+        if (/\/neo\/offers\/[^/]+/i.test(pathname)) return 'detail';
+    }
+    if (sourceType === 'dib') {
+        if (/\/offers\/card-offers/i.test(pathname)) return 'listing';
+        if (/\/offers\/offer-detail\//i.test(pathname)) return 'detail';
     }
     return null;
 }

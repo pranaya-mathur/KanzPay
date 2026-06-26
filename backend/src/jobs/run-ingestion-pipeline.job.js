@@ -11,6 +11,7 @@ import config from '../config.js';
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const skipRefresh = args.includes('--skip-refresh');
+const skipHealthRefresh = args.includes('--skip-health-refresh');
 const writePlan = args.includes('--write-plan');
 const apifyRunId = args.find((a) => a.startsWith('--apify-run='))?.split('=')[1];
 
@@ -38,7 +39,7 @@ async function main() {
     }
 
     let validation = null;
-    if (!dryRun) {
+    if (!dryRun && !skipHealthRefresh) {
         validation = await refreshAllSourceHealth();
     }
 
@@ -51,7 +52,7 @@ async function main() {
         ingestionRunId: ingest.runId,
         stats: ingest.stats,
         refresh,
-        validationCount: validation?.length ?? null,
+        validationCount: validation?.refreshed ?? null,
         planGenerated: !!plan,
     };
 

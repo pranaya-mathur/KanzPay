@@ -28,6 +28,15 @@ export function isGarbageTitle(title) {
     return GARBAGE_TITLE_PATTERNS.some((p) => p.test(t));
 }
 
+import {
+    isAdcbNavNoise, isEarnRateNoise, isTouchpointsBurnOffer, hasBankCheckoutSignal,
+} from '../../shared/utils/bank-offer-filters.js';
+
+const TIER_AB_BANKS = new Set([
+    'emiratesNbd', 'adcb', 'mashreq', 'fab', 'dib', 'adib',
+    'rakBank', 'hsbc', 'cbd', 'visaUAE',
+]);
+
 export function passesQualityGate(offer, options = {}) {
     const reasons = [];
     const strictGate = !!options.strictGate;
@@ -70,6 +79,10 @@ export function passesQualityGate(offer, options = {}) {
         }
     }
 
+    if (options.strictBankGate || TIER_AB_BANKS.has(offer.sourceType)) {
+        applyStrictBankGate(offer, reasons);
+    }
+
     return {
         passed: reasons.length === 0,
         reasons,
@@ -98,5 +111,20 @@ function hasAbsurdValues(offer) {
     if (offer.discountType === 'percent' && Number(offer.discountValue) > 100) return true;
     if (offer.minSpend != null && offer.minSpend < 0) return true;
     if (offer.capValue != null && offer.capValue < 0) return true;
+    const dv = Number(offer.discountValue);
+    if (Number.isFinite(dv) && dv > 10000) return true;
+    const body = `${offer.offerTitle || ''} ${offer.offerDescription || ''} ${offer.rawText || ''}`;
+    if (dv === 1 && isEarnRateNoise(body)) return true;
     return false;
+}
+
+function applyStrictBankGate(offer, reasons) {
+    const body = `${offer.offerTitle || ''} ${offer.offerDescription || ''} ${offer.rawText || ''}`;
+    if (isAdcbNavNoise(body)) reasons.push('adcb_nav_noise');
+    if (isTouchpointsBurnOffer(body) && !(offer.categories || []).includes('touchpoints_burn')) {
+        reasons.push('touchpoints_only');
+    }
+    if (!hasBankCheckoutSignal(offer) && offer.sourceType !== 'visaUAE') {
+        reasons.push('bank_missing_checkout_signal');
+    }
 }

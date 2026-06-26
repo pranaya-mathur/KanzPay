@@ -20,7 +20,7 @@ const input = {
     useSourceRegistry: true,
     startUrls,
     maxDepth: 2,
-    maxRequestsPerCrawl: 300,
+    maxRequestsPerCrawl: 400,
     crawlerMode: registry.crawlerMode ?? 'playwright',
     allowedDomains: registry.allowedDomains
         || [...new Set(registry.sources.map((s) => s.domain).filter(Boolean))],

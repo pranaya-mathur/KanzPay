@@ -6,10 +6,15 @@ export const DISCOVERY_AUTO_CONFIDENCE = 0.65;
 
 const KNOWN_PARSERS = new Set([
     'enbdParser', 'emiratesNbdParser', 'visaParser', 'visaUaeParser',
-    'fabParser', 'couponFeedParser', 'merchantParser',
+    'fabParser', 'adcbParser', 'mashreqParser', 'dibParser', 'adibParser',
+    'rakbankParser', 'hsbcParser', 'cbdParser', 'bankOfferParser',
+    'couponFeedParser', 'merchantParser',
 ]);
 
-const REGISTRY_SOURCE_TYPES = new Set(['emiratesNbd', 'visaUAE', 'fab', 'couponFeed', 'merchant']);
+const REGISTRY_SOURCE_TYPES = new Set([
+    'emiratesNbd', 'adcb', 'mashreq', 'fab', 'dib', 'adib',
+    'rakBank', 'hsbc', 'cbd', 'visaUAE', 'couponFeed', 'merchant',
+]);
 
 /**
  * Hybrid discovery routing before standard confidence/gate checks.

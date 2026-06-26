@@ -78,3 +78,18 @@ Discovery log: `storage/key_value_stores/default/DISCOVERY_RESULTS.json`
 ```bash
 apify push
 ```
+
+## Pipeline remediation runbook
+
+After changing source tiers or parsers:
+
+1. Apply DB migrations: `docker exec -i backend-postgres-1 psql -U kanzpay -d kanzpay < backend/migrations/012_status_lock_and_registry_sync.sql`
+2. Sync registry → DB: `npm --prefix backend run sync-registry`
+3. Purge stale offers / quarantine: `npm --prefix backend run purge-stale`
+4. Build crawl INPUT: `node src/jobs/crawl-approved-sources.job.js`
+5. Crawl: `APIFY_LOCAL_STORAGE_DIR=./storage CRAWLEE_STORAGE_DIR=./storage node src/main.js`
+6. Ingest (first pass): `npm --prefix backend run pipeline:ingest -- --skip-health-refresh`
+7. Validate coverage: `npm run validate:coverage`
+8. Full ingest with health refresh: `npm --prefix backend run pipeline:ingest`
+
+Tier A sources use `status_locked` so health refresh updates metrics only and does not demote `approved` tiers.

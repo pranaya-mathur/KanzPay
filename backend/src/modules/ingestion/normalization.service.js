@@ -5,6 +5,7 @@ import {
 } from '../../shared/utils/text-normalize.js';
 import { normalizeUrl } from '../../shared/utils/url-normalize.js';
 import { mapSourceTypeFromUrl } from '../../shared/schemas/source.schema.js';
+import { inferBankNameFromSource, inferDiscountFromText } from '../../shared/utils/bank-offer-filters.js';
 
 const FALSE_COUPON_BLOCKLIST = new Set([
     'HTTP', 'HTTPS', 'HTML', 'TRUE', 'FALSE', 'NULL', 'CODE', 'PROMO',
@@ -34,8 +35,13 @@ export function normalizeRawOffer(raw) {
         discountValue = toNumber(String(discountValue));
     }
 
+    const combinedForDiscount = `${raw.offerTitle || ''} ${raw.offerDescription || ''} ${raw.rawText || ''}`;
+    ({ discountType, discountValue } = inferDiscountFromText(
+        combinedForDiscount, discountType, discountValue,
+    ));
+
     if (!discountType) {
-        const combined = `${raw.offerTitle || ''} ${raw.offerDescription || ''}`;
+        const combined = combinedForDiscount;
         if (/cashback|cash back/i.test(combined)) discountType = 'cashback';
         else if (/\d+\s*%|%\s*off|up to \d+\s*%/i.test(combined)) discountType = 'percent';
         else if (/AED\s*\d|Dhs\s*\d/i.test(combined)) discountType = 'fixed';
@@ -65,7 +71,7 @@ export function normalizeRawOffer(raw) {
         sourceUrl,
         normalizedUrl,
         sourceType,
-        bankName: normalizeBankName(raw.bankName),
+        bankName: normalizeBankName(inferBankNameFromSource(sourceType, raw.bankName)),
         cardName: normalizeCardName(raw.cardName),
         merchantName: normalizeMerchantName(raw.merchantName) || normalizeMerchantName(raw.offerTitle),
         offerTitle: cleanText(raw.offerTitle) || null,

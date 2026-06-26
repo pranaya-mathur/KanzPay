@@ -208,7 +208,8 @@ describe('Quarantine routing', () => {
         const routing = routeIngestionRecord({ gate, confidence, confidenceFloor: 0.4 });
         assert.equal(routing.destination, 'quarantine');
         assert.ok(routing.reasons.includes('below_confidence_floor')
-            || routing.reasons.includes('category_header'));
+            || routing.reasons.includes('category_header')
+            || routing.reasons.includes('bank_missing_checkout_signal'));
     });
 
     it('accepts high-confidence offers into canonical path', () => {

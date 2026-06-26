@@ -16,6 +16,7 @@
     "backend:start": "npm --prefix backend start",
     "backend:ingest": "npm --prefix backend run pipeline:ingest",
     "pipeline": "npm run db:up && npm run backend:ingest",
+    "validate:coverage": "node scripts/validate-bank-coverage.js",
     "postinstall": "npx playwright install chromium || true"
   },
   "dependencies": {

@@ -1,10 +1,10 @@
 export const PATTERNS = {
     cashback: /(?:up\s+to\s+)?(\d{1,2}(?:\.\d{1,2})?)\s*%\s*(?:cash\s*back|cashback)/i,
-    cashbackGeneric: /cashback|cash\s*back/i,
+    cashbackGeneric: /cash[\s-]*back/i,
     percentDiscount: /(?:up\s+to\s+)?(\d{1,2}(?:\.\d{1,2})?)\s*%\s*(?:off|discount|save|cashback)?/i,
     percentOffPhrase: /(\d{1,2}(?:\.\d{1,2})?)\s*%\s*off/i,
-    fixedDiscount: /(?:AED|Dhs|د\.?إ)\s*(\d+(?:[.,]\d{1,2})?)\s*(?:off|discount|save|cashback)?/i,
-    fixedOffPhrase: /(?:save|get)\s+(?:AED|Dhs)\s*(\d+(?:[.,]\d{1,2})?)/i,
+    fixedDiscount: /(?:AED|Dhs|د\.?إ)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*(?:off|discount|save|cashback)?/i,
+    fixedOffPhrase: /(?:save|get)\s+(?:AED|Dhs)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/i,
     couponCode: /(?:coupon|promo(?:tion)?\s*code|voucher\s*code|use\s+code|code)[\s:]+([A-Z][A-Z0-9_-]{2,19})/i,
     couponCodeInline: /\b([A-Z]{4,12}\d{0,4})\b/,
     minSpend: /(?:min(?:imum)?\s*(?:spend|purchase|order|cart(?:\s*value)?|monthly\s*spend)|spend\s*(?:of|at\s*least))\s*(?:AED|Dhs)?\s*(\d+(?:[.,]\d{1,2})?)/i,
@@ -59,22 +59,50 @@ export function detectCategories(text) {
         .map(([name]) => name);
 }
 
+export function isInstalmentContext(text) {
+    if (!text) return false;
+    return /(?:starting\s+at|from|minimum\s+transaction|easy\s+payment\s+plan|0%\s*(?:epp|installment|instalment)|flexi\s+instalment)/i.test(text);
+}
+
+export function parseFixedAmount(text) {
+    const raw = extractMatch(text, PATTERNS.fixedDiscount) || extractMatch(text, PATTERNS.fixedOffPhrase);
+    if (!raw) return null;
+    const normalized = String(raw).replace(/,/g, '');
+    const n = parseFloat(normalized);
+    return Number.isFinite(n) ? String(n) : null;
+}
+
 export function detectDiscountType(text) {
     if (!text) return { discountType: null, discountValue: null };
 
+    if (isInstalmentContext(text) && !/(?:\d+\s*%|cashback)/i.test(text)) {
+        return { discountType: null, discountValue: null };
+    }
+
     const cashbackVal = extractMatch(text, PATTERNS.cashback);
     if (cashbackVal || PATTERNS.cashbackGeneric.test(text)) {
+        const fixed = parseFixedAmount(text);
+        const fxCashback = text.match(/(?:EUR|USD|AUD|SGD|GBP|FJD)\s*(\d+(?:[.,]\d+)?)\s*cashback/i);
         return {
             discountType: 'cashback',
-            discountValue: cashbackVal || extractMatch(text, PATTERNS.percentDiscount),
+            discountValue: cashbackVal || (fxCashback ? fxCashback[1] : null) || fixed || extractMatch(text, PATTERNS.percentDiscount),
         };
     }
 
     const pct = extractMatch(text, PATTERNS.percentOffPhrase) || extractMatch(text, PATTERNS.percentDiscount);
     if (pct) return { discountType: 'percent', discountValue: pct };
 
-    const fixed = extractMatch(text, PATTERNS.fixedDiscount) || extractMatch(text, PATTERNS.fixedOffPhrase);
+    const fixed = parseFixedAmount(text);
     if (fixed) return { discountType: 'fixed', discountValue: fixed };
+
+    const startingFrom = text.match(/starting\s+from\s+(?:AED|Dhs)\s*(\d[\d,]*)/i);
+    if (startingFrom) {
+        return { discountType: 'fixed', discountValue: startingFrom[1].replace(/,/g, '') };
+    }
+
+    if (/0%\s*(?:interest|epp|easy\s+payment|installment|instalment)/i.test(text)) {
+        return { discountType: 'emi', discountValue: '0%' };
+    }
 
     if (PATTERNS.complimentary.test(text)) {
         return { discountType: 'complimentary', discountValue: null };

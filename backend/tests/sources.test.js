@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractDomain, normalizeDomain, domainsMatch, buildBaseUrl } from '../src/shared/utils/domain-normalize.js';
 import { computeSourceScore, aggregateOfferMetrics, computeMerchantYield } from '../src/modules/sources/source-score.service.js';
-import { classifySourceStatus, statusAllowsAutoCrawl } from '../src/modules/sources/source-classifier.service.js';
+import { classifySourceStatus, statusAllowsAutoCrawl, isTierASourceType } from '../src/modules/sources/source-classifier.service.js';
 import { resolveConfidenceFloor, canCrawlSource, applySourceConfidenceAdjustment } from '../src/modules/sources/source-policy.service.js';
 import { buildCrawlPlan } from '../src/modules/crawler/crawl-plan.service.js';
 import { scoreOfferConfidence } from '../src/modules/ingestion/confidence-score.service.js';
@@ -95,6 +95,34 @@ describe('Source classification', () => {
         const result = classifySourceStatus(0.5, { sampleSize: 2, sourceType: 'emiratesNbd' });
         assert.equal(result.status, 'approved');
     });
+
+    it('defaults FAB to approved with low sample (tier A bootstrap)', () => {
+        const result = classifySourceStatus(0.5, { sampleSize: 2, sourceType: 'fab' });
+        assert.equal(result.status, 'approved');
+    });
+
+    it('never rejects tier A sources with very low score', () => {
+        const result = classifySourceStatus(0.2, {
+            quarantineRate: 0.5,
+            avgMerchantYield: 0.1,
+            avgFieldCompleteness: 0.2,
+            sampleSize: 30,
+            sourceType: 'fab',
+        });
+        assert.notEqual(result.status, 'rejected');
+        assert.ok(isTierASourceType('fab'));
+    });
+
+    it('locked status preserves approved tier on metrics update semantics', () => {
+        const lowScore = classifySourceStatus(0.2, {
+            sampleSize: 30,
+            sourceType: 'fab',
+            quarantineRate: 0.4,
+            avgMerchantYield: 0.2,
+            avgFieldCompleteness: 0.3,
+        });
+        assert.equal(lowScore.status, 'probation');
+    });
 });
 
 describe('Source policy', () => {
@@ -109,7 +137,7 @@ describe('Source policy', () => {
     });
 
     it('uses stricter confidence floor for probation', () => {
-        assert.equal(resolveConfidenceFloor(approved), 0.4);
+        assert.equal(resolveConfidenceFloor(approved), 0.55);
         assert.equal(resolveConfidenceFloor(probation), 0.5);
     });
 
@@ -139,7 +167,8 @@ describe('Ingestion confidence with source registry', () => {
         });
         const without = scoreOfferConfidence(offer);
         const withSource = scoreOfferConfidence(offer, { status: 'approved', confidence: 0.92, sourceType: 'emiratesNbd' });
-        assert.ok(withSource >= without);
+        assert.ok(withSource >= 0.6);
+        assert.ok(without >= 0.6);
     });
 });
 

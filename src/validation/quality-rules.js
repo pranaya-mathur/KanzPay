@@ -21,6 +21,37 @@ const FAB_CATEGORY_PATTERNS = [
     /^0%\s*epp\b/i,
 ];
 
+const COOKIE_NOISE_PATTERNS = [
+    /preference cookies/i,
+    /HTTP Cookie/i,
+    /stores the user'?s preferred language/i,
+    /cookie is used to determine the preferred language/i,
+    /maximum storage duration/i,
+    /NameProviderPurpose/i,
+];
+
+const PAGE_CHROME_TITLE_PATTERNS = [
+    /^(credit cards|offers|deals|promotions|rewards|shukran)$/i,
+    /^UAE \|/i,
+    /^credit and debit card special offers$/i,
+];
+
+export function isCookieOrPrivacyNoise(text) {
+    const t = cleanText(text);
+    if (!t || t.length < 40) return false;
+    if (COOKIE_NOISE_PATTERNS.filter((p) => p.test(t)).length >= 2) return true;
+    if (/preference cookies enable a website/i.test(t)) return true;
+    return false;
+}
+
+export function isPageChromeTitle(title) {
+    const t = cleanText(title);
+    if (!t) return false;
+    if (PAGE_CHROME_TITLE_PATTERNS.some((p) => p.test(t))) return true;
+    if (t.length > 100 && /cookie|privacy policy|terms of use/i.test(t)) return true;
+    return false;
+}
+
 export function isCategoryHeaderTitle(title, sourceType = null) {
     const t = cleanText(title);
     if (!t) return false;
@@ -57,9 +88,63 @@ export function hasMeaningfulOfferFields(offer) {
     return false;
 }
 
+export function isEarnRateNoise(text) {
+    const t = cleanText(text);
+    if (!t) return false;
+    if (/bonus\s+touchpoint/i.test(t) && /every\s+aed\s*1\s+spent/i.test(t)) return true;
+    if (/earn\s+\d+\s+bonus\s+touchpoint/i.test(t)) return true;
+    if (/for\s+every\s+aed\s*1\s+spent/i.test(t) && !/(?:%\s*off|cashback)/i.test(t)) return true;
+    return false;
+}
+
+export function isAdcbNavNoise(text) {
+    const t = cleanText(text);
+    if (!t) return false;
+    if (/adcb\s+logo\s+facebook/i.test(t)) return true;
+    if (/refer\s+(?:a\s+friend|your\s+friends)/i.test(t)) return true;
+    if (/touchpoints\s+maxmake/i.test(t)) return true;
+    return false;
+}
+
+export function isTouchpointsBurnOffer(text) {
+    const t = cleanText(text);
+    if (!t) return false;
+    return /pay\s+with\s+touchpoints|convert\s+\d[\d,]*\s*touchpoints/i.test(t);
+}
+
+export function isNonUaeFabOffer(text, url = '') {
+    const combined = `${text} ${url}`.toLowerCase();
+    return /london|shard|sea\s*life|uk\b|united\s+kingdom|manchester\s+city/i.test(combined)
+        && !/uae|dubai|abu\s+dhabi|sharjah|emirates/i.test(combined);
+}
+
+export function isEnbdListingNoise(merchant, title) {
+    const combined = `${merchant || ''} ${title || ''}`.toLowerCase();
+    if (/amazon\.ae|dubai\s+municipality|sharjah\s+free|government/i.test(combined)) return true;
+    return false;
+}
+
+export function isMashreqVantageNoise(text) {
+    const t = cleanText(text);
+    if (!t) return false;
+    if (/mashreq\s+vantage\s+(?:reward\s+)?points/i.test(t)) return true;
+    if (/enjoy\s+free\s+shopping\s+with\s+mashreq\s+vantage/i.test(t)) return true;
+    if (/pay\s+with\s+vantage\s+points/i.test(t)) return true;
+    if (/vantage\s+points/i.test(t) && !/(?:%\s*off|cashback|AED\s*[\d,]+)/i.test(t)) return true;
+    return false;
+}
+
+export function isMashreqEppOffer(text, paymentCategory = '') {
+    const combined = `${text} ${paymentCategory}`.toLowerCase();
+    return /easy\s+payment\s+plan|0%\s*easy\s+payment/i.test(combined);
+}
+
 export function hasSaneAmounts(offer) {
     if (offer.discountType === 'percent' && Number(offer.discountValue) > 100) return false;
     if (offer.minSpend != null && offer.minSpend < 0) return false;
     if (offer.capValue != null && offer.capValue < 0) return false;
+    const dv = Number(offer.discountValue);
+    if (Number.isFinite(dv) && dv > 10000) return false;
+    if (dv === 1 && isEarnRateNoise(`${offer.offerTitle} ${offer.offerDescription} ${offer.rawText}`)) return false;
     return true;
 }

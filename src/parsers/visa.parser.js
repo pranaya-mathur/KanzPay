@@ -51,15 +51,18 @@ export function parseVisa($, url, rawText, rawHtml, meta = {}) {
             && !isCategoryHeaderTitle(title, 'visaUAE')
             && !/try one of these popular/i.test(rawText || '')
             && /(?:cashback|%\s*off|AED\s*\d|discount|valid\s+until)/i.test(combined)) {
-            offers.push(buildVisaOffer({
+            const built = buildVisaOffer({
                 url,
                 title,
                 description,
                 rawText,
                 meta,
                 reason: `${reason}; mode=text-fallback`,
-            }));
-            warnings.push('text_fallback_used');
+            });
+            if (built) {
+                offers.push(built);
+                warnings.push('text_fallback_used');
+            }
         }
     }
 
@@ -111,14 +114,15 @@ function extractVisaListingOffers($, url, rawText, meta, reason) {
 
         seenUrl.add(absUrl);
         seenTitle.add(titleKey);
-        offers.push(buildVisaOffer({
+        const built = buildVisaOffer({
             url: absUrl,
             title,
             description: cardText,
             rawText: cardText || rawText,
             meta,
             reason: `${reason}; mode=listing-card`,
-        }));
+        });
+        if (built) offers.push(built);
     });
 
     return offers;
@@ -146,6 +150,9 @@ function extractVisaDetailOffer($, url, rawText, meta, reason) {
 }
 
 function buildVisaOffer({ url, title, description, rawText, meta, reason }) {
+    const combined = `${title} ${description} ${rawText}`;
+    if (!isVisaUaeRelevant(combined, url)) return null;
+
     const offer = createOfferBase({
         sourceUrl: url,
         sourceType: 'visaUAE',
@@ -154,7 +161,6 @@ function buildVisaOffer({ url, title, description, rawText, meta, reason }) {
         crawlDepth: meta.crawlDepth,
     });
 
-    const combined = `${title} ${description} ${rawText}`;
     const { discountType, discountValue } = detectDiscountType(combined);
 
     offer.cardName = 'Visa';
@@ -170,7 +176,7 @@ function buildVisaOffer({ url, title, description, rawText, meta, reason }) {
     offer.validTo = extractMatch(rawText, PATTERNS.validity);
     offer.paymentMethods = extractPaymentMethods(rawText);
     if (!offer.paymentMethods.length) offer.paymentMethods = ['Visa'];
-    offer.categories = detectCategories(combined);
+    offer.categories = [...new Set([...detectCategories(combined), 'network_perk'])];
     offer.pageLength = (rawText || '').length;
     offer.confidence = scoreConfidence(offer, rawText);
     offer.rawText = rawText;
@@ -182,4 +188,11 @@ function merchantFromSlug(pathname) {
     const slug = parts[parts.length - 2] || parts[parts.length - 1] || '';
     if (!slug || slug === 'visa-offers-and-perks' || /^\d+$/.test(slug)) return null;
     return slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function isVisaUaeRelevant(text, url = '') {
+    const combined = `${text} ${url}`.toLowerCase();
+    if (/uae|dubai|abu\s+dhabi|sharjah|\.ae\b|emirates|middle\s+east/i.test(combined)) return true;
+    if (/bangkok|malaysia|mexico|singapore|thailand|india\b|uk\b|london/i.test(combined)) return false;
+    return true;
 }

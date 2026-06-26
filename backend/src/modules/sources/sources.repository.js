@@ -27,6 +27,7 @@ function rowToSource(row) {
         failureCount: row.failure_count,
         quarantineCount: row.quarantine_count,
         sampleSize: row.sample_size,
+        statusLocked: !!row.status_locked,
         parserProfileJson: row.parser_profile_json,
         crawlRulesJson: row.crawl_rules_json,
         createdAt: row.created_at,
@@ -154,7 +155,11 @@ export async function upsertSource(record) {
     return rowToSource(rows[0]);
 }
 
-export async function updateSourceMetrics(id, metrics, classification) {
+export async function updateSourceMetrics(id, metrics, classification, options = {}) {
+    const statusLocked = !!options.statusLocked;
+    const effectiveStatus = statusLocked ? null : (classification?.status ?? null);
+    const effectiveReason = statusLocked ? null : (classification?.reason ?? null);
+
     const { rows } = await query(
         `UPDATE sources SET
             confidence = $2,
@@ -182,11 +187,59 @@ export async function updateSourceMetrics(id, metrics, classification) {
             metrics.avgFreshnessScore,
             metrics.sampleSize,
             metrics.quarantineCount ?? 0,
-            classification?.status ?? null,
-            classification?.reason ?? null,
+            effectiveStatus,
+            effectiveReason,
         ],
     );
     return rowToSource(rows[0]);
+}
+
+export async function syncSourceFromRegistry(record) {
+    const statusLocked = !!record.statusLocked;
+    const { rows } = await query(
+        `INSERT INTO sources (
+            source_name, domain, base_url, source_type, category, status, priority,
+            status_locked, parser_profile_json, crawl_rules_json, approval_reason
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        ON CONFLICT (domain, source_type) DO UPDATE SET
+            source_name = EXCLUDED.source_name,
+            base_url = EXCLUDED.base_url,
+            category = EXCLUDED.category,
+            status = EXCLUDED.status,
+            priority = EXCLUDED.priority,
+            status_locked = EXCLUDED.status_locked,
+            parser_profile_json = EXCLUDED.parser_profile_json,
+            crawl_rules_json = EXCLUDED.crawl_rules_json,
+            approval_reason = CASE WHEN EXCLUDED.status = 'approved' THEN EXCLUDED.approval_reason ELSE sources.approval_reason END,
+            rejection_reason = CASE WHEN EXCLUDED.status = 'rejected' THEN EXCLUDED.approval_reason ELSE sources.rejection_reason END,
+            updated_at = NOW()
+        RETURNING *`,
+        [
+            record.sourceName,
+            normalizeDomain(record.domain),
+            record.baseUrl,
+            record.sourceType,
+            record.category || 'bank',
+            record.status || 'probation',
+            record.priority ?? 50,
+            statusLocked,
+            JSON.stringify(record.parserProfileJson || record.parserProfile || {}),
+            JSON.stringify(record.crawlRulesJson || {}),
+            record.approvalReason || `registry_sync:${record.sourceType}`,
+        ],
+    );
+    return rowToSource(rows[0]);
+}
+
+export async function releaseQuarantineBySourceTypes(sourceTypes, quarantineType = 'rejected_source') {
+    const { rows } = await query(
+        `DELETE FROM quarantine_records
+         WHERE quarantine_type = $2
+           AND source_type = ANY($1::text[])
+         RETURNING id`,
+        [sourceTypes, quarantineType],
+    );
+    return rows.length;
 }
 
 export async function updateSourceStatus(id, status, reason) {

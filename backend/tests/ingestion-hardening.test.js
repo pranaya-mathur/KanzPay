@@ -60,7 +60,7 @@ describe('Hybrid discovery policy', () => {
     });
 });
 
-describe('Strict quality gate', () => {
+describe('Strict bank quality gate', () => {
     it('fails probation-style offers without merchant and value when strict', () => {
         const offer = {
             offerTitle: 'Some offer page',
@@ -73,6 +73,89 @@ describe('Strict quality gate', () => {
         assert.equal(loose.passed, true);
         assert.equal(strict.passed, false);
         assert.ok(strict.reasons.includes('strict_missing_merchant_and_value'));
+    });
+
+    it('rejects ADCB nav noise for bank sources', () => {
+        const offer = {
+            sourceType: 'adcb',
+            offerTitle: 'TouchPoints Max',
+            merchantName: 'adcb logo Facebook Instagram',
+            offerDescription: 'Refer your friends',
+            confidence: 0.9,
+            pageLength: 500,
+        };
+        const result = passesQualityGate(offer);
+        assert.equal(result.passed, false);
+        assert.ok(result.reasons.includes('adcb_nav_noise'));
+    });
+
+    it('requires merchant+discount or validTo for tier A banks', () => {
+        const weak = {
+            sourceType: 'mashreq',
+            offerTitle: 'Offers page',
+            merchantName: 'Shop',
+            confidence: 0.7,
+            pageLength: 800,
+        };
+        const result = passesQualityGate(weak);
+        assert.equal(result.passed, false);
+        assert.ok(result.reasons.includes('bank_missing_checkout_signal'));
+    });
+
+    it('accepts Mashreq EPP merchant listings tagged instalment_plan', () => {
+        const epp = {
+            sourceType: 'mashreq',
+            offerTitle: 'Antoine Saliba World of Jewelry',
+            merchantName: 'Antoine Saliba World of Jewelry',
+            discountType: 'percent',
+            categories: ['instalment_plan'],
+            confidence: 0.7,
+            pageLength: 800,
+        };
+        const result = passesQualityGate(epp);
+        assert.equal(result.passed, true);
+    });
+
+    it('accepts ADCB foreign-currency cashback in title', () => {
+        const offer = {
+            sourceType: 'adcb',
+            offerTitle: 'EUR 8 cashback using Mastercard at PABBLO',
+            merchantName: 'By Mastercard',
+            discountType: 'cashback',
+            confidence: 0.62,
+            pageLength: 500,
+        };
+        const result = passesQualityGate(offer);
+        assert.equal(result.passed, true);
+    });
+
+    it('accepts 0% interest payment plan offers', () => {
+        const offer = {
+            sourceType: 'adcb',
+            offerTitle: '0% Interest Payment Plan for 6 months at Farah Jewellery',
+            merchantName: 'By Farah Jewellery',
+            discountType: 'percent',
+            confidence: 0.57,
+            pageLength: 500,
+        };
+        const result = passesQualityGate(offer);
+        assert.equal(result.passed, true);
+    });
+
+    it('continues ingest for approved locked FAB source (not rejected_source quarantine)', () => {
+        const offer = {
+            sourceUrl: 'https://www.bankfab.com/en-ae/personal/cards/credit-cards/offers/foo',
+            sourceType: 'fab',
+            merchantName: 'Noon',
+            offerTitle: '20% off at Noon',
+            discountType: 'percent',
+            discountValue: 20,
+            parserName: 'fabParser',
+            confidence: 0.7,
+        };
+        const registrySource = { status: 'approved', statusLocked: true, sourceType: 'fab' };
+        const result = evaluateDiscoveryPolicy(offer, registrySource, new Map(), { confidence: 0.7 });
+        assert.equal(result.action, 'continue');
     });
 });
 

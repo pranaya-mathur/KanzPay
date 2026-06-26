@@ -12,6 +12,8 @@
     "migrate": "node src/db/migrate.js",
     "ingest": "node src/jobs/ingest-crawl-results.job.js",
     "pipeline:ingest": "node src/jobs/run-ingestion-pipeline.job.js",
+    "sync-registry": "node src/jobs/sync-registry-sources.job.js",
+    "purge-stale": "node src/jobs/purge-stale-data.job.js",
     "review-discovery": "node src/jobs/review-discovery-results.job.js",
     "discovery:plan": "node ../src/jobs/crawl-discovery-sources.job.js",
     "refresh": "node src/jobs/refresh-offers.job.js",

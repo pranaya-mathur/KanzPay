@@ -134,9 +134,13 @@ export async function validateSingleSource(sourceId) {
             avgFreshnessScore: metrics.avgFreshnessScore,
             sampleSize: metrics.sampleSize,
             quarantineCount,
-        }, classification);
+        }, classification, { statusLocked: source.statusLocked });
 
-        logger.info('Source validated', { sourceId, score, status: classification.status });
+        logger.info('Source validated', {
+            sourceId, score,
+            status: source.statusLocked ? source.status : classification.status,
+            statusLocked: source.statusLocked,
+        });
 
         return {
             source: updated,

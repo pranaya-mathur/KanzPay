@@ -24,16 +24,22 @@ export const SOURCE_SELECTORS = {
         enqueue: 'a[href*="offer"], a[href*="promo"]',
     },
     mashreq: {
-        wait: ['.offer-card', '.promotion-item', 'article', 'main'],
-        cards: ['.offer-card', '.promotion-item', 'article', '[class*="offer"]'],
-        detail: ['h1', '.offer-body', 'main'],
-        enqueue: 'a[href*="offer"], a[href*="promo"]',
+        wait: ['.ui-card', 'a[href*="/neo/offers/"]', 'main', 'h1', 'h2', '[class*="offer"]'],
+        cards: ['.ui-card', 'a[href*="/neo/offers/"]', '[class*="offer-card"]', '.promotion-item', 'article'],
+        detail: ['h1', '.offer-body', 'main', 'article'],
+        enqueue: 'a[href*="/neo/offers/"]',
     },
     rakBank: {
         wait: ['.offer-card', '.card-offer', 'article', 'main'],
         cards: ['.offer-card', '.card-offer', 'article'],
         detail: ['h1', 'main'],
         enqueue: 'a[href*="offer"], a[href*="promo"]',
+    },
+    dib: {
+        wait: ['.card-list-item', '.card-title-info', '.offer-listing-sec'],
+        cards: ['.card-list-item', '.card-title-info'],
+        detail: ['h1', '.card-desc-info', 'main'],
+        enqueue: 'a[href*="/offers/offer-detail/"], a[href*="/offers/card-offers"]',
     },
     groupon: {
         wait: ['.deal', '[class*="deal"]', 'main', 'h1'],

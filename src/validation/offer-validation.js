@@ -1,6 +1,7 @@
 import { passesQualityGate, isGarbageTitle } from '../schema/offerSchema.js';
 import {
     isCategoryHeaderTitle, isShellPage, hasMeaningfulOfferFields, hasSaneAmounts,
+    isCookieOrPrivacyNoise, isPageChromeTitle, isAdcbNavNoise, isEarnRateNoise,
 } from './quality-rules.js';
 
 /**
@@ -14,6 +15,16 @@ export function validateOfferForEmit(offer, context = {}) {
 
     if (!hasMeaningfulOfferFields(offer)) reasons.push('missing_meaningful_fields');
     if (offer.offerTitle && isGarbageTitle(offer.offerTitle)) reasons.push('garbage_title');
+    if (isCookieOrPrivacyNoise(`${offer.offerTitle || ''} ${offer.rawText || ''} ${offer.offerDescription || ''}`)) {
+        reasons.push('cookie_privacy_noise');
+    }
+    if (offer.offerTitle && isPageChromeTitle(offer.offerTitle)) reasons.push('page_chrome_title');
+    if (isAdcbNavNoise(`${offer.offerTitle || ''} ${offer.rawText || ''} ${offer.offerDescription || ''}`)) {
+        reasons.push('adcb_nav_noise');
+    }
+    if (isEarnRateNoise(`${offer.offerTitle || ''} ${offer.rawText || ''} ${offer.offerDescription || ''}`)) {
+        reasons.push('earn_rate_noise');
+    }
     if (offer.offerTitle && isCategoryHeaderTitle(offer.offerTitle, sourceType || offer.sourceType)) {
         reasons.push('category_header');
     }
