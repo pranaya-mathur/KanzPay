@@ -1,21 +1,32 @@
 import { query } from '../../db/pool.js';
 import { findCardProductById } from '../cards/cards.repository.js';
+import { getProductionPaymentMethods } from './production-methods.repository.js';
 
-export async function getWalletInstruments(userId) {
-    const [loyalty, coupons, membership, cards, banks] = await Promise.all([
+export async function getWalletInstruments(userId, { productionUserId } = {}) {
+    const [loyalty, coupons, membership, localCards, localBanks, productionMethods] = await Promise.all([
         query('SELECT * FROM user_loyalty_accounts WHERE user_id = $1 ORDER BY created_at', [userId]),
         query('SELECT * FROM user_coupons WHERE user_id = $1 ORDER BY created_at DESC', [userId]),
         query('SELECT * FROM user_memberships WHERE user_id = $1 LIMIT 1', [userId]),
         query('SELECT * FROM user_cards WHERE user_id = $1 ORDER BY created_at', [userId]),
         query('SELECT * FROM user_banks WHERE user_id = $1 ORDER BY created_at', [userId]),
+        getProductionPaymentMethods(productionUserId).catch(() => ({ banks: [], cards: [] })),
     ]);
+
+    // Production methods take priority; fall back to local if production not connected
+    const banks = productionMethods.banks.length > 0
+        ? productionMethods.banks
+        : localBanks.rows.map(mapBank);
+
+    const cards = productionMethods.cards.length > 0
+        ? productionMethods.cards
+        : localCards.rows.map(mapCard);
 
     return {
         loyaltyAccounts: loyalty.rows.map(mapLoyalty),
         coupons: coupons.rows.map(mapCoupon),
         membership: membership.rows[0] ? mapMembership(membership.rows[0]) : null,
-        cards: cards.rows.map(mapCard),
-        banks: banks.rows.map(mapBank),
+        cards,
+        banks,
     };
 }
 

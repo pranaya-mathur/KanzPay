@@ -1,4 +1,5 @@
 import * as checkout from './checkout.service.js';
+import { isProductionConnected } from '../../db/production-pool.js';
 
 export async function createSession(req, res, next) {
     try {
@@ -23,6 +24,37 @@ export async function getRecommend(req, res, next) {
         }
         return next(err);
     }
+}
+
+export async function confirmSession(req, res, next) {
+    try {
+        const data = await checkout.confirmSession(
+            req.params.id,
+            req.user.id,
+            {
+                sellerUserId: req.body.sellerUserId,
+                paymentOption: req.body.paymentOption || 'bank',
+            },
+        );
+        return res.json({ success: true, data });
+    } catch (err) {
+        if (err.message?.includes('not found') || err.message?.includes('already confirmed')) {
+            return res.status(400).json({ success: false, error: err.message });
+        }
+        return next(err);
+    }
+}
+
+export async function getProductionStatus(req, res) {
+    return res.json({
+        success: true,
+        data: {
+            productionConnected: isProductionConnected(),
+            message: isProductionConnected()
+                ? 'Connected to production Supabase Users DB'
+                : 'Production DB not configured — set SUPABASE_USERS_DB_URL in .env',
+        },
+    });
 }
 
 export async function patchInstruments(req, res, next) {

@@ -26,6 +26,8 @@ export const config = {
     openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
     jwtSecret: process.env.JWT_SECRET || 'kanzpay-dev-secret-change-in-production',
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    supabaseUsersDbUrl: process.env.SUPABASE_USERS_DB_URL || null,
+    supabaseSafegoldDbUrl: process.env.SUPABASE_SAFEGOLD_DB_URL || null,
     projectRoot,
     backendRoot,
     sourceStaleDays: {

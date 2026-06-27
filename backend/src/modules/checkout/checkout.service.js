@@ -1,4 +1,5 @@
 import { query } from '../../db/pool.js';
+import { productionQuery, isProductionConnected } from '../../db/production-pool.js';
 import { getPaymentRecommendation } from '../payment/payment.service.js';
 import { getInstrumentsForPayment } from '../wallet/wallet.service.js';
 import { findMerchantById } from '../merchants/merchants.service.js';
@@ -14,19 +15,36 @@ function mapSession(row) {
         selectedCouponId: row.selected_coupon_id,
         loyaltyEnabled: row.loyalty_enabled,
         membershipEnabled: row.membership_enabled,
+        sessionType: row.session_type || 'online',
+        posId: row.pos_id || null,
+        storeId: row.store_id || null,
+        pointsRedemptionPct: row.points_redemption_pct != null ? Number(row.points_redemption_pct) : 100,
+        productionUserId: row.production_user_id || null,
+        productionPaymentRequestId: row.production_payment_request_id || null,
         status: row.status,
+        confirmedAt: row.confirmed_at || null,
     };
 }
 
-export async function createSession(userId, { merchantId, amount, currency = 'AED' }) {
+export async function createSession(userId, {
+    merchantId,
+    amount,
+    currency = 'AED',
+    sessionType = 'online',
+    posId = null,
+    storeId = null,
+    productionUserId = null,
+}) {
     if (!merchantId || !amount) throw new Error('merchantId and amount are required');
     const merchant = await findMerchantById(merchantId);
     if (!merchant) throw new Error('merchant not found');
 
     const { rows } = await query(
-        `INSERT INTO checkout_sessions (user_id, merchant_id, requested_amount, currency)
-         VALUES ($1,$2,$3,$4) RETURNING *`,
-        [userId, merchantId, amount, currency],
+        `INSERT INTO checkout_sessions
+           (user_id, merchant_id, requested_amount, currency, session_type, pos_id, store_id, production_user_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         RETURNING *`,
+        [userId, merchantId, amount, currency, sessionType, posId, storeId, productionUserId],
     );
     return mapSession(rows[0]);
 }
@@ -45,11 +63,12 @@ export async function updateSessionInstruments(sessionId, userId, patch) {
 
     const { rows } = await query(
         `UPDATE checkout_sessions SET
-           selected_card_id = COALESCE($3, selected_card_id),
-           selected_coupon_id = COALESCE($4, selected_coupon_id),
-           loyalty_enabled = COALESCE($5, loyalty_enabled),
-           membership_enabled = COALESCE($6, membership_enabled),
-           updated_at = NOW()
+           selected_card_id        = COALESCE($3, selected_card_id),
+           selected_coupon_id      = COALESCE($4, selected_coupon_id),
+           loyalty_enabled         = COALESCE($5, loyalty_enabled),
+           membership_enabled      = COALESCE($6, membership_enabled),
+           points_redemption_pct   = COALESCE($7, points_redemption_pct),
+           updated_at              = NOW()
          WHERE id = $1 AND user_id = $2
          RETURNING *`,
         [
@@ -59,6 +78,7 @@ export async function updateSessionInstruments(sessionId, userId, patch) {
             patch.couponId ?? null,
             patch.loyaltyEnabled ?? null,
             patch.membershipEnabled ?? null,
+            patch.pointsRedemptionPct ?? null,
         ],
     );
     return mapSession(rows[0]);
@@ -71,13 +91,28 @@ export async function getSessionRecommendation(sessionId, userId, options = {}) 
     const merchant = await findMerchantById(session.merchantId);
     if (!merchant) throw new Error('merchant not found');
 
-    let instruments = await getInstrumentsForPayment(userId);
+    // Pass production_user_id so wallet fetches real bank/card data from Supabase
+    let instruments = await getInstrumentsForPayment(userId, {
+        productionUserId: session.productionUserId,
+    });
 
     if (session.loyaltyEnabled === false) {
         instruments = { ...instruments, loyaltyAccounts: [] };
     }
     if (session.membershipEnabled === false) {
         instruments = { ...instruments, membership: null };
+    }
+
+    // Apply points redemption percentage from slider
+    if (session.pointsRedemptionPct < 100 && instruments.loyaltyAccounts.length > 0) {
+        const pct = session.pointsRedemptionPct / 100;
+        instruments = {
+            ...instruments,
+            loyaltyAccounts: instruments.loyaltyAccounts.map((a) => ({
+                ...a,
+                balanceCoins: Math.floor(a.balanceCoins * pct),
+            })),
+        };
     }
 
     if (session.selectedCardId) {
@@ -99,7 +134,6 @@ export async function getSessionRecommendation(sessionId, userId, options = {}) 
             })),
         };
     } else if (instruments.coupons.length > 1) {
-        // Only enable first coupon by default when none selected
         const [first, ...rest] = instruments.coupons;
         instruments = {
             ...instruments,
@@ -119,7 +153,81 @@ export async function getSessionRecommendation(sessionId, userId, options = {}) 
     const recommendation = await getPaymentRecommendation(rawRequest, options);
     return {
         sessionId: session.id,
+        sessionType: session.sessionType,
         merchant,
+        pointsRedemptionPct: session.pointsRedemptionPct,
         ...recommendation,
+    };
+}
+
+/**
+ * Buyer presses "Pay Now" — lock the recommendation and create payment_request
+ * in production Supabase so Lean/N-Genius gateway flow can proceed.
+ */
+export async function confirmSession(sessionId, userId, { sellerUserId, paymentOption }) {
+    const session = await findSession(sessionId, userId);
+    if (!session) throw new Error('session not found');
+    if (session.status !== 'open') throw new Error('session already confirmed or closed');
+
+    // Get final recommendation to capture net amount + breakdown
+    const rec = await getSessionRecommendation(sessionId, userId, { skipAI: true });
+
+    const grossAmount = rec.requestedAmount;
+    const netAmount = rec.payAmount;
+    const breakdown = rec.discountBreakdown || [];
+
+    const loyaltyAed = breakdown.find((d) => d.type === 'loyalty')?.discountAed || 0;
+    const couponAed = breakdown.find((d) => d.type === 'coupon')?.discountAed || 0;
+    const membershipAed = breakdown.find((d) => d.type === 'membership')?.discountAed || 0;
+
+    let productionPaymentRequestId = null;
+
+    if (isProductionConnected() && session.productionUserId) {
+        const { rows } = await productionQuery(
+            `INSERT INTO payment_requests
+               (seller_user_id, buyer_user_id, amount_aed, net_amount_aed, gross_amount_aed,
+                payment_option, status, loyalty_redeemed_aed, coupon_discount_aed,
+                membership_discount_aed, discount_breakdown, checkout_session_id)
+             VALUES ($1,$2,$3,$4,$5,$6,'PENDING',$7,$8,$9,$10,$11)
+             RETURNING id`,
+            [
+                sellerUserId,
+                session.productionUserId,
+                netAmount,
+                netAmount,
+                grossAmount,
+                paymentOption || 'bank',
+                loyaltyAed,
+                couponAed,
+                membershipAed,
+                JSON.stringify(breakdown),
+                sessionId,
+            ],
+        );
+        productionPaymentRequestId = rows[0]?.id || null;
+    }
+
+    // Mark session confirmed in local DB
+    await query(
+        `UPDATE checkout_sessions
+         SET status = 'confirmed',
+             confirmed_at = NOW(),
+             production_payment_request_id = $2
+         WHERE id = $1`,
+        [sessionId, productionPaymentRequestId],
+    );
+
+    return {
+        sessionId,
+        productionPaymentRequestId,
+        grossAmount,
+        netAmount,
+        totalDiscount: rec.totalDiscount,
+        discountBreakdown: breakdown,
+        rewardsEarned: rec.rewardsEarned,
+        paymentOption: paymentOption || 'bank',
+        nextStep: productionPaymentRequestId
+            ? 'payment_request_created'
+            : 'production_not_connected',
     };
 }

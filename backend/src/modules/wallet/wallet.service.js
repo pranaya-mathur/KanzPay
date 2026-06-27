@@ -1,11 +1,11 @@
 import * as repo from './wallet.repository.js';
 
-export async function getInstruments(userId) {
-    return repo.getWalletInstruments(userId);
+export async function getInstruments(userId, opts = {}) {
+    return repo.getWalletInstruments(userId, opts);
 }
 
-export async function getInstrumentsForPayment(userId) {
-    return repo.toUserInstruments(await repo.getWalletInstruments(userId));
+export async function getInstrumentsForPayment(userId, opts = {}) {
+    return repo.toUserInstruments(await repo.getWalletInstruments(userId, opts));
 }
 
 export const addCard = repo.addCard;

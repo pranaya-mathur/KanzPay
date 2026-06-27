@@ -71,10 +71,12 @@ router.put('/wallet/membership', requireAuth, walletController.setMembership);
 router.post('/wallet/banks', requireAuth, walletController.addBank);
 router.delete('/wallet/banks/:id', requireAuth, walletController.removeBank);
 
-// Checkout sessions (Paytm-style)
+// Checkout sessions
 router.post('/checkout/sessions', requireAuth, checkoutController.createSession);
 router.get('/checkout/sessions/:id/recommend', requireAuth, checkoutController.getRecommend);
 router.patch('/checkout/sessions/:id/instruments', requireAuth, checkoutController.patchInstruments);
+router.post('/checkout/sessions/:id/confirm', requireAuth, checkoutController.confirmSession);
+router.get('/checkout/production-status', checkoutController.getProductionStatus);
 
 // Payment recommendation — normalization + rules engine + AI
 router.post('/payment/recommend', paymentController.recommend);
