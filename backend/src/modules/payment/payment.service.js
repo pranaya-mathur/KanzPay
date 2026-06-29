@@ -8,6 +8,7 @@ import { normalizePaymentRequest } from './normalization.service.js';
 import { evaluatePaymentCombinations, buildInstrumentSelection } from './rules-engine.service.js';
 import { getAIRecommendation, isAIEnabled } from './ai-recommendation.service.js';
 import { fetchApplicableOffersWithCoupons, mergeCouponInstruments } from './offer-fetch.service.js';
+import { reviewEligibility, reviewEligibilityWithLlm } from './eligibility-reviewer.service.js';
 import logger from '../../shared/utils/logger.js';
 
 /**
@@ -41,6 +42,13 @@ export async function getPaymentRecommendation(rawRequest, options = {}) {
     const instrumentSelection = buildInstrumentSelection(ctxWithCoupons, combinationsResult);
     const best = combinationsResult.bestCombination;
 
+    const eligibility = options.skipAI
+        ? reviewEligibility(ctxWithCoupons, best, applicableOffersMeta, mergedCoupons)
+        : await reviewEligibilityWithLlm(ctxWithCoupons, best, applicableOffersMeta, {
+            mergedCoupons,
+            skipAI: options.skipAI,
+        });
+
     let recommendation;
     if (options.skipAI || !isAIEnabled()) {
         logger.info('AI disabled or skipped, using rules engine result');
@@ -55,10 +63,16 @@ export async function getPaymentRecommendation(rawRequest, options = {}) {
             explanation: null,
             savingsHighlight: best ? `Save ${ctx.currency} ${best.totalDiscount}` : null,
             rewardsHighlight: null,
-            caveats: [],
+            caveats: eligibility.caveats,
         };
     } else {
         recommendation = await getAIRecommendation(ctxWithCoupons, combinationsResult, { model: options.model });
+        if (eligibility.caveats.length) {
+            recommendation.caveats = [...new Set([
+                ...(recommendation.caveats || []),
+                ...eligibility.caveats,
+            ])];
+        }
     }
 
     const recommendedInstruments = buildRecommendedInstruments(best, ctxWithCoupons);
@@ -78,7 +92,8 @@ export async function getPaymentRecommendation(rawRequest, options = {}) {
         combinationsCount: combinationsResult.totalCombinationsEvaluated,
         applicableOffersFound: dbOffers.length + crawledCoupons.length,
         applicableOffers: applicableOffersMeta,
-        disclaimer: crawledCoupons.some((c) => c.verifyRequired)
+        eligibilityReview: eligibility.eligibilityReview,
+        disclaimer: crawledCoupons.some((c) => c.verifyRequired) || eligibility.caveats.length
             ? 'Some offers are from public sources — verify eligibility before paying.'
             : null,
     };

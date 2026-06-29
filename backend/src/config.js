@@ -24,6 +24,19 @@ export const config = {
     // OpenAI / AI recommendation layer
     openaiApiKey: process.env.OPENAI_API_KEY || null,
     openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
+    openaiEnrichmentModel: process.env.OPENAI_ENRICHMENT_MODEL || 'gpt-4o-mini',
+    enrichmentEnabled: process.env.ENRICHMENT_ENABLED === 'true',
+    enrichmentBatchSize: Number(process.env.ENRICHMENT_BATCH_SIZE || 100),
+    enrichmentMinConfidenceAuto: Number(process.env.ENRICHMENT_MIN_CONFIDENCE_AUTO || 0.85),
+    enrichmentVerifyThreshold: Number(process.env.ENRICHMENT_VERIFY_THRESHOLD || 0.65),
+    enrichmentDelayMs: Number(process.env.ENRICHMENT_DELAY_MS || 200),
+    enrichmentMaxRetries: Number(process.env.ENRICHMENT_MAX_RETRIES || 3),
+    auditLlmSampleSize: Number(process.env.AUDIT_LLM_SAMPLE_SIZE || 50),
+    eligibilityLlmReviewEnabled: (() => {
+        if (process.env.ELIGIBILITY_LLM_REVIEW_ENABLED === 'false') return false;
+        if (process.env.ELIGIBILITY_LLM_REVIEW_ENABLED === 'true') return true;
+        return !!(process.env.OPENAI_API_KEY);
+    })(),
     jwtSecret: process.env.JWT_SECRET || 'kanzpay-dev-secret-change-in-production',
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
     supabaseUsersDbUrl: process.env.SUPABASE_USERS_DB_URL || null,

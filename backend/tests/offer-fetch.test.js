@@ -1,6 +1,28 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeCouponInstruments } from '../src/modules/payment/offer-fetch.service.js';
+import { mergeCouponInstruments, resolveVerifyRequired } from '../src/modules/payment/offer-fetch.service.js';
+
+describe('resolveVerifyRequired', () => {
+    it('returns true when offer.verifyRequired is set', () => {
+        assert.equal(resolveVerifyRequired({ verifyRequired: true, confidence: 0.9 }), true);
+    });
+
+    it('returns true when validity is unknown', () => {
+        assert.equal(resolveVerifyRequired({ validityStatus: 'unknown', confidence: 0.9 }), true);
+    });
+
+    it('returns true for low-confidence crawled offers', () => {
+        assert.equal(resolveVerifyRequired({ confidence: 0.5 }), true);
+    });
+
+    it('returns false for high-confidence verified offers', () => {
+        assert.equal(resolveVerifyRequired({
+            verifyRequired: false,
+            validityStatus: 'active',
+            confidence: 0.9,
+        }), false);
+    });
+});
 
 describe('mergeCouponInstruments', () => {
     it('wallet coupons override crawled duplicates', () => {

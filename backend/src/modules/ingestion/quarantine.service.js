@@ -7,6 +7,7 @@ export const QUARANTINE_TYPES = {
     LOW_CONFIDENCE: 'below_confidence_floor',
     REJECTED_SOURCE: 'rejected_source',
     DISCOVERY_REVIEW: 'discovery_review',
+    LLM_REVIEW: 'llm_review_required',
 };
 
 /**

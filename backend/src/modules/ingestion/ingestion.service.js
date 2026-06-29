@@ -24,6 +24,7 @@ import { buildSourceIndex } from './source-index.service.js';
 import { evaluateDiscoveryPolicy } from './discovery-policy.service.js';
 import { hashFileContent } from './file-hash.service.js';
 import { extractHostname } from '../../shared/utils/url-normalize.js';
+import { mergeIngestValidity, resolveInsertValidity } from './ingest-validity-merge.service.js';
 
 const BATCH_SIZE = 50;
 
@@ -214,6 +215,11 @@ function rowToOfferModel(row) {
         termsUrl: row.terms_url,
         confidence: Number(row.confidence),
         freshnessStatus: row.freshness_status,
+        validityStatus: row.validity_status || 'unknown',
+        verifyRequired: row.verify_required ?? false,
+        llmEnrichedAt: row.llm_enriched_at || null,
+        llmConfidence: row.llm_confidence != null ? Number(row.llm_confidence) : null,
+        llmEnrichment: row.llm_enrichment_json || {},
         discoveryQuery: row.discovery_query,
         discoverySource: row.discovery_source,
         serpRank: row.serp_rank,
@@ -241,17 +247,19 @@ async function upsertOffer(client, dbOffer, stats) {
     const seenAt = dbOffer.seenAt || new Date().toISOString();
 
     if (!existing) {
+        const { verifyRequired, validityStatus } = resolveInsertValidity(dbOffer);
         const { rows } = await client.query(
             `INSERT INTO offers (
                 canonical_key, source_id, source_url, normalized_url, source_type, bank_name, card_name,
                 merchant_name, offer_title, offer_description, discount_type, discount_value,
                 currency, min_spend, cap_value, valid_from, valid_to, coupon_code,
                 payment_methods, eligible_mcc_list, categories, stackable, terms_url,
-                confidence, freshness_status, discovery_query, discovery_source, serp_rank,
+                confidence, freshness_status, validity_status, verify_required,
+                discovery_query, discovery_source, serp_rank,
                 parser_name, crawl_depth, first_seen_at, last_seen_at
             ) VALUES (
                 $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
-                $24,$25,$26,$27,$28,$29,$30,$31,$31
+                $24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$33
             ) RETURNING *`,
             [
                 dbOffer.canonicalKey, dbOffer.sourceId, dbOffer.sourceUrl, dbOffer.normalizedUrl, dbOffer.sourceType,
@@ -260,7 +268,8 @@ async function upsertOffer(client, dbOffer, stats) {
                 dbOffer.minSpend, dbOffer.capValue, dbOffer.validFrom, dbOffer.validTo, dbOffer.couponCode,
                 JSON.stringify(dbOffer.paymentMethods), JSON.stringify(dbOffer.eligibleMccList),
                 JSON.stringify(dbOffer.categories), dbOffer.stackable, dbOffer.termsUrl,
-                dbOffer.confidence, dbOffer.freshnessStatus, dbOffer.discoveryQuery,
+                dbOffer.confidence, dbOffer.freshnessStatus, validityStatus, verifyRequired,
+                dbOffer.discoveryQuery,
                 dbOffer.discoverySource, dbOffer.serpRank, dbOffer.parserName, dbOffer.crawlDepth, seenAt,
             ],
         );
@@ -273,6 +282,8 @@ async function upsertOffer(client, dbOffer, stats) {
     const existingHash = buildSnapshotHash(existingModel);
     const incomingHash = buildSnapshotHash(preferred);
     const materialChanged = existingHash !== incomingHash;
+    const merged = mergeIngestValidity(existing, preferred);
+    const { enrichedFields } = merged;
 
     const { rows } = await client.query(
         `UPDATE offers SET
@@ -281,23 +292,24 @@ async function upsertOffer(client, dbOffer, stats) {
             discount_value = $11, currency = $12, min_spend = $13, cap_value = $14, valid_from = $15,
             valid_to = $16, coupon_code = $17, payment_methods = $18, eligible_mcc_list = $19,
             categories = $20, stackable = $21, terms_url = $22, confidence = $23,
-            freshness_status = $24, discovery_query = COALESCE($25, discovery_query),
-            discovery_source = COALESCE($26, discovery_source), serp_rank = COALESCE($27, serp_rank),
-            parser_name = $28, crawl_depth = $29, last_seen_at = $30, updated_at = NOW()
+            freshness_status = $24, validity_status = $25, verify_required = $26,
+            discovery_query = COALESCE($27, discovery_query),
+            discovery_source = COALESCE($28, discovery_source), serp_rank = COALESCE($29, serp_rank),
+            parser_name = $30, crawl_depth = $31, last_seen_at = $32, updated_at = NOW()
          WHERE id = $1
          RETURNING *`,
         [
             existing.id,
             preferred.sourceUrl, preferred.normalizedUrl, preferred.sourceType,
-            preferred.bankName, preferred.cardName, preferred.merchantName, preferred.offerTitle,
+            preferred.bankName, enrichedFields.cardName, preferred.merchantName, preferred.offerTitle,
             preferred.offerDescription, preferred.discountType, preferred.discountValue,
-            preferred.currency, preferred.minSpend, preferred.capValue, preferred.validFrom,
-            preferred.validTo, preferred.couponCode,
+            preferred.currency, enrichedFields.minSpend, enrichedFields.capValue, merged.validFrom,
+            merged.validTo, enrichedFields.couponCode,
             JSON.stringify(preferred.paymentMethods || dbOffer.paymentMethods),
             JSON.stringify(preferred.eligibleMccList || dbOffer.eligibleMccList),
             JSON.stringify(preferred.categories || dbOffer.categories),
-            preferred.stackable ?? dbOffer.stackable, preferred.termsUrl,
-            preferred.confidence ?? dbOffer.confidence, 'fresh',
+            preferred.stackable ?? dbOffer.stackable, enrichedFields.termsUrl,
+            preferred.confidence ?? dbOffer.confidence, 'fresh', merged.validityStatus, merged.verifyRequired,
             dbOffer.discoveryQuery, dbOffer.discoverySource, dbOffer.serpRank,
             preferred.parserName || dbOffer.parserName, preferred.crawlDepth ?? dbOffer.crawlDepth,
             seenAt,

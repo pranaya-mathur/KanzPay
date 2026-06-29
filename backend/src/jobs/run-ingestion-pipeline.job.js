@@ -4,6 +4,9 @@ import { refreshStaleOffers } from '../modules/offers/offers.service.js';
 import { refreshAllSourceHealth } from '../modules/sources/sources.service.js';
 import { generateCrawlTargets } from '../modules/crawler/crawl-targets.service.js';
 import { syncApifyRunArtifacts } from '../modules/crawler/apify-sync.service.js';
+import { runOfferEnrichmentBatch } from '../modules/enrichment/enrich-offers.service.js';
+import { runValidityAudit } from '../modules/enrichment/audit-validity.service.js';
+import { isEnrichmentAvailable } from '../modules/enrichment/offer-llm-enrichment.service.js';
 import { closePool } from '../db/pool.js';
 import logger from '../shared/utils/logger.js';
 import config from '../config.js';
@@ -38,6 +41,15 @@ async function main() {
         refresh = await refreshStaleOffers();
     }
 
+    let enrichment = null;
+    let validityAudit = null;
+    if (!dryRun && config.enrichmentEnabled && isEnrichmentAvailable()) {
+        enrichment = await runOfferEnrichmentBatch();
+        validityAudit = await runValidityAudit();
+    } else if (!dryRun && !skipRefresh) {
+        validityAudit = await runValidityAudit({ llmSampleSize: 0 });
+    }
+
     let validation = null;
     if (!dryRun && !skipHealthRefresh) {
         validation = await refreshAllSourceHealth();
@@ -52,6 +64,8 @@ async function main() {
         ingestionRunId: ingest.runId,
         stats: ingest.stats,
         refresh,
+        enrichment,
+        validityAudit,
         validationCount: validation?.refreshed ?? null,
         planGenerated: !!plan,
     };

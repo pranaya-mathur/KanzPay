@@ -56,6 +56,9 @@ function evaluateLoyaltyEligibility(account, amount) {
  */
 function evaluateCouponEligibility(coupon, amount, originalAmount = amount) {
     if (!coupon.enabled) return { eligible: false, reason: 'coupon_disabled', discountAed: 0 };
+    if (coupon.expiresAt && isExpiredDate(coupon.expiresAt)) {
+        return { eligible: false, reason: 'coupon_expired', discountAed: 0 };
+    }
     // Min-spend is always checked against original basket — not post-loyalty remainder
     if (coupon.minSpend != null && originalAmount < coupon.minSpend) {
         return { eligible: false, reason: `min_spend_not_met:${coupon.minSpend}`, discountAed: 0 };
@@ -134,6 +137,22 @@ function evaluateCardOfferEligibility(offer, card, ctx) {
     // Min spend
     if (offer.minSpend != null && ctx.requestedAmount < offer.minSpend) {
         return { eligible: false, reason: `min_spend_not_met:${offer.minSpend}`, discountAed: 0 };
+    }
+    // Validity status and verification gates
+    if (offer.validityStatus === 'expired') {
+        return { eligible: false, reason: 'offer_expired', discountAed: 0 };
+    }
+    if (offer.validityStatus === 'not_yet_active') {
+        return { eligible: false, reason: 'offer_not_yet_active', discountAed: 0 };
+    }
+    if (offer.validityStatus === 'unknown') {
+        return { eligible: false, reason: 'offer_validity_unknown', discountAed: 0 };
+    }
+    if (offer.verifyRequired) {
+        return { eligible: false, reason: 'offer_verify_required', discountAed: 0 };
+    }
+    if (offer.validFrom && isFutureDate(offer.validFrom)) {
+        return { eligible: false, reason: 'offer_not_yet_active', discountAed: 0 };
     }
     // Freshness
     if (offer.freshnessStatus === 'stale') {
@@ -541,6 +560,24 @@ export function buildInstrumentSelection(ctx, combinationsResult) {
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+function isExpiredDate(value) {
+    const d = new Date(String(value).slice(0, 10));
+    if (Number.isNaN(d.getTime())) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    return d < today;
+}
+
+function isFutureDate(value) {
+    const d = new Date(String(value).slice(0, 10));
+    if (Number.isNaN(d.getTime())) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    return d > today;
+}
 
 function round2(n) {
     return Math.round(n * 100) / 100;

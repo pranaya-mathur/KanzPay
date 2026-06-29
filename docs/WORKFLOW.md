@@ -421,6 +421,18 @@ POST /payment/recommend
 
 Layers 1–2 are operational (deterministic). **Layer 3 is the mandatory AI layer** — separate from crawl/ingest, but required for the payment recommendation product.
 
+### Offer validity & enrichment (operational + async LLM)
+
+| Job | Command | Purpose |
+|-----|---------|---------|
+| Enrichment | `npm run enrich-offers` | Fill missing `valid_to`, `min_spend`, `cap_value`, etc. via GPT-4o-mini |
+| Validity audit | `npm run audit-validity` | Mark expired offers stale; backfill `verify_required` |
+| Refresh | `npm run refresh` | Stale by crawl age + SQL validity audit |
+
+Enable post-ingest enrichment: `ENRICHMENT_ENABLED=true npm run pipeline:ingest`
+
+Validity model: `freshness_status` (crawl recency) ≠ `validity_status` (date eligibility) ≠ `verify_required` (checkout caution).
+
 ### OpenAI integration (mandatory AI layer)
 
 Implemented in `backend/src/modules/payment/ai-recommendation.service.js`.

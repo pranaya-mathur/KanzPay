@@ -200,6 +200,7 @@ export function toUserInstruments(wallet) {
             discountValue: c.discountValue,
             minSpend: c.minSpend,
             maxDiscount: c.maxDiscount,
+            expiresAt: c.expiresAt,
             enabled: c.enabled,
         })),
         membership: wallet.membership

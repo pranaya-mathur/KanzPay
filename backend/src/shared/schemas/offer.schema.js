@@ -10,6 +10,8 @@ export const DISCOUNT_TYPES = [
 
 export const FRESHNESS_STATUSES = ['fresh', 'stale'];
 
+export const VALIDITY_STATUSES = ['active', 'expired', 'not_yet_active', 'unknown'];
+
 export const RawCrawlOfferSchema = z.object({
     sourceUrl: z.string().url(),
     sourceType: z.enum(SOURCE_TYPES).or(z.string()),
@@ -68,6 +70,8 @@ export const OfferQuerySchema = z.object({
     category: z.string().optional(),
     validNow: z.coerce.boolean().optional(),
     freshnessStatus: z.enum(FRESHNESS_STATUSES).optional(),
+    validityStatus: z.enum(VALIDITY_STATUSES).optional(),
+    verifyRequired: z.coerce.boolean().optional(),
     discoveryQuery: z.string().optional(),
     q: z.string().optional(),
     confidenceMin: z.coerce.number().min(0).max(1).optional(),

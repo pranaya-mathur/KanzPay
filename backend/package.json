@@ -17,6 +17,8 @@
     "review-discovery": "node src/jobs/review-discovery-results.job.js",
     "discovery:plan": "node ../src/jobs/crawl-discovery-sources.job.js",
     "refresh": "node src/jobs/refresh-offers.job.js",
+    "enrich-offers": "node src/jobs/enrich-offers.job.js",
+    "audit-validity": "node src/jobs/audit-offer-validity.job.js",
     "validate-sources": "node src/jobs/validate-sources.job.js",
     "refresh-sources": "node src/jobs/refresh-source-health.job.js",
     "crawl-plan": "node -e \"import('./src/modules/crawler/crawl-targets.service.js').then(m=>m.generateCrawlTargets({writeInput:true})).then(r=>console.log(JSON.stringify(r.plan,null,2)))\"",

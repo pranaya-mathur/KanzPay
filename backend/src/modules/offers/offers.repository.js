@@ -28,6 +28,11 @@ function rowToOffer(row) {
         termsUrl: row.terms_url,
         confidence: Number(row.confidence),
         freshnessStatus: row.freshness_status,
+        validityStatus: row.validity_status || 'unknown',
+        verifyRequired: row.verify_required ?? false,
+        llmEnrichedAt: row.llm_enriched_at || null,
+        llmConfidence: row.llm_confidence != null ? Number(row.llm_confidence) : null,
+        llmEnrichment: row.llm_enrichment_json || {},
         discoveryQuery: row.discovery_query,
         discoverySource: row.discovery_source,
         serpRank: row.serp_rank,
@@ -87,6 +92,16 @@ function buildWhere(filters) {
     }
     if (filters.validNow) {
         clauses.push(`(valid_to IS NULL OR valid_to >= CURRENT_DATE)`);
+        clauses.push(`validity_status NOT IN ('expired', 'not_yet_active')`);
+    }
+    if (filters.validityStatus) {
+        clauses.push(`validity_status = $${idx++}`);
+        params.push(filters.validityStatus);
+    }
+    if (filters.verifyRequired === true) {
+        clauses.push(`verify_required = true`);
+    } else if (filters.verifyRequired === false) {
+        clauses.push(`verify_required = false`);
     }
     if (filters.q) {
         clauses.push(`(
@@ -190,4 +205,124 @@ export async function markStaleOffers(sourceType = null) {
     `;
     const { rows } = await query(sql, params);
     return rows.length;
+}
+
+export async function findOffersNeedingEnrichment(limit = 100) {
+    const { rows } = await query(
+        `SELECT o.*, r.raw_text
+         FROM offers o
+         LEFT JOIN LATERAL (
+             SELECT raw_text FROM raw_crawl_events
+             WHERE source_url = o.source_url
+             ORDER BY created_at DESC LIMIT 1
+         ) r ON true
+         WHERE o.freshness_status = 'fresh'
+           AND (o.llm_enriched_at IS NULL OR o.llm_enriched_at < o.last_seen_at)
+           AND (
+             o.valid_to IS NULL OR o.min_spend IS NULL OR o.cap_value IS NULL
+             OR o.card_name IS NULL OR o.terms_url IS NULL OR o.verify_required = true
+           )
+         ORDER BY o.confidence DESC, o.last_seen_at DESC
+         LIMIT $1`,
+        [limit],
+    );
+    return rows.map((row) => ({
+        ...rowToOffer(row),
+        rawText: row.raw_text || row.offer_description || '',
+    }));
+}
+
+export async function updateOfferEnrichment(offerId, patch) {
+    const { rows } = await query(
+        `UPDATE offers SET
+            valid_from = COALESCE($2, valid_from),
+            valid_to = COALESCE($3, valid_to),
+            min_spend = COALESCE($4, min_spend),
+            cap_value = COALESCE($5, cap_value),
+            card_name = COALESCE($6, card_name),
+            coupon_code = COALESCE($7, coupon_code),
+            terms_url = COALESCE($8, terms_url),
+            validity_status = $9,
+            verify_required = $10,
+            llm_enriched_at = NOW(),
+            llm_confidence = $11,
+            llm_enrichment_json = $12,
+            updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [
+            offerId,
+            patch.validFrom ?? null,
+            patch.validTo ?? null,
+            patch.minSpend ?? null,
+            patch.capValue ?? null,
+            patch.cardName ?? null,
+            patch.couponCode ?? null,
+            patch.termsUrl ?? null,
+            patch.validityStatus,
+            patch.verifyRequired ?? false,
+            patch.llmConfidence ?? null,
+            JSON.stringify(patch.llmEnrichmentJson || {}),
+        ],
+    );
+    return rowToOffer(rows[0]);
+}
+
+export async function auditExpiredOffers() {
+    const expired = await query(
+        `UPDATE offers SET
+            validity_status = 'expired',
+            freshness_status = 'stale',
+            updated_at = NOW()
+         WHERE valid_to IS NOT NULL AND valid_to < CURRENT_DATE
+           AND validity_status != 'expired'
+         RETURNING id`,
+    );
+
+    const verifyFlip = await query(
+        `UPDATE offers SET verify_required = true, updated_at = NOW()
+         WHERE valid_to IS NULL AND verify_required = false
+           AND validity_status IN ('active', 'unknown')
+         RETURNING id`,
+    );
+
+    const activeBackfill = await query(
+        `UPDATE offers SET validity_status = 'active', updated_at = NOW()
+         WHERE validity_status = 'unknown'
+           AND valid_to IS NOT NULL AND valid_to >= CURRENT_DATE
+           AND (valid_from IS NULL OR valid_from <= CURRENT_DATE)
+           AND verify_required = false
+         RETURNING id`,
+    );
+
+    return {
+        markedExpired: expired.rowCount,
+        verifyRequiredSet: verifyFlip.rowCount,
+        markedActive: activeBackfill.rowCount,
+    };
+}
+
+export async function findOffersForLlmAudit(limit = 50) {
+    const { rows } = await query(
+        `SELECT o.*, r.raw_text
+         FROM offers o
+         LEFT JOIN LATERAL (
+             SELECT raw_text FROM raw_crawl_events
+             WHERE source_url = o.source_url
+             ORDER BY created_at DESC LIMIT 1
+         ) r ON true
+         WHERE o.freshness_status = 'fresh'
+           AND (
+             o.verify_required = true
+             OR o.validity_status = 'unknown'
+             OR (o.confidence >= 0.65 AND o.confidence < 0.79)
+           )
+         ORDER BY o.updated_at ASC
+         LIMIT $1`,
+        [limit],
+    );
+    return rows.map((row) => ({
+        ...rowToOffer(row),
+        rawText: row.raw_text || row.offer_description || '',
+    }));
 }

@@ -7,6 +7,19 @@ import logger from '../../shared/utils/logger.js';
 
 const CRAWL_COUPON_CONFIDENCE = 0.65;
 
+const CHECKOUT_OFFER_FILTERS = {
+    freshnessStatus: 'fresh',
+    validNow: true,
+};
+
+function resolveVerifyRequired(offer) {
+    if (offer.verifyRequired) return true;
+    if (offer.validityStatus === 'unknown') return true;
+    return (offer.confidence ?? 0) < CRAWL_COUPON_CONFIDENCE;
+}
+
+export { resolveVerifyRequired };
+
 /**
  * @param {object} ctx - Normalized payment context
  * @returns {Promise<{ dbOffers: object[], crawledCoupons: object[], applicableOffersMeta: object[] }>}
@@ -19,16 +32,15 @@ export async function fetchApplicableOffersWithCoupons(ctx) {
 
         const queries = [];
         for (const term of searchTerms) {
-            queries.push(findOffers({ merchant: term, freshnessStatus: 'fresh', validNow: true, limit: 50 }));
+            queries.push(findOffers({ ...CHECKOUT_OFFER_FILTERS, merchant: term, limit: 50 }));
         }
         if (ctx.merchantCategory) {
-            queries.push(findOffers({ category: ctx.merchantCategory, freshnessStatus: 'fresh', validNow: true, limit: 50 }));
+            queries.push(findOffers({ ...CHECKOUT_OFFER_FILTERS, category: ctx.merchantCategory, limit: 50 }));
         }
-        queries.push(findOffers({ freshnessStatus: 'fresh', validNow: true, limit: 100 }));
+        queries.push(findOffers({ ...CHECKOUT_OFFER_FILTERS, limit: 100 }));
 
         const couponQuery = findOffers({
-            freshnessStatus: 'fresh',
-            validNow: true,
+            ...CHECKOUT_OFFER_FILTERS,
             limit: 50,
             ...(searchTerms[0] ? { merchant: searchTerms[0] } : {}),
         });
@@ -50,14 +62,22 @@ export async function fetchApplicableOffersWithCoupons(ctx) {
         const dbOffers = [];
 
         for (const offer of allOffers) {
+            if (offer.validityStatus === 'expired' || offer.validityStatus === 'not_yet_active') {
+                continue;
+            }
+
+            const verifyRequired = resolveVerifyRequired(offer);
+
             if (offer.couponCode) {
-                const couponInstrument = offerToCouponInstrument(offer);
+                const couponInstrument = offerToCouponInstrument(offer, verifyRequired);
                 crawledCoupons.push(couponInstrument);
                 applicableOffersMeta.push({
                     offerId: offer.id,
                     from: 'crawled',
                     type: 'coupon',
-                    verifyRequired: (offer.confidence ?? 0) < CRAWL_COUPON_CONFIDENCE,
+                    verifyRequired,
+                    validityStatus: offer.validityStatus,
+                    confidence: offer.confidence,
                     title: offer.offerTitle,
                     merchantName: offer.merchantName,
                 });
@@ -67,7 +87,9 @@ export async function fetchApplicableOffersWithCoupons(ctx) {
                     offerId: offer.id,
                     from: 'crawled',
                     type: offer.discountType === 'coupon' ? 'coupon' : 'card_offer',
-                    verifyRequired: (offer.confidence ?? 0) < CRAWL_COUPON_CONFIDENCE,
+                    verifyRequired,
+                    validityStatus: offer.validityStatus,
+                    confidence: offer.confidence,
                     title: offer.offerTitle,
                     bankName: offer.bankName,
                 });
@@ -81,7 +103,7 @@ export async function fetchApplicableOffersWithCoupons(ctx) {
     }
 }
 
-function offerToCouponInstrument(offer) {
+function offerToCouponInstrument(offer, verifyRequired) {
     const discountType = normalizeDiscountType(offer.discountType);
     let discountValue = parseFloat(offer.discountValue) || 0;
     if (discountType === 'percent' && discountValue > 0 && discountValue <= 1) {
@@ -94,11 +116,12 @@ function offerToCouponInstrument(offer) {
         discountValue,
         minSpend: offer.minSpend,
         maxDiscount: offer.capValue,
+        expiresAt: offer.validTo || null,
         programName: offer.offerTitle || offer.merchantName || 'Crawled offer',
         enabled: true,
         source: 'crawled',
         offerId: offer.id,
-        verifyRequired: (offer.confidence ?? 0) < CRAWL_COUPON_CONFIDENCE,
+        verifyRequired: verifyRequired ?? offer.verifyRequired ?? ((offer.confidence ?? 0) < CRAWL_COUPON_CONFIDENCE),
     };
 }
 

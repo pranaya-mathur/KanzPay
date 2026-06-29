@@ -231,6 +231,7 @@ function normalizeCoupons(coupons) {
                 discountValue: toPositiveNumber(c.discountValue ?? c.value),
                 minSpend: c.minSpend != null ? toPositiveNumber(c.minSpend) : null,
                 maxDiscount: c.maxDiscount != null ? toPositiveNumber(c.maxDiscount) : null,
+                expiresAt: c.expiresAt || c.expires_at || null,
                 programName: cleanText(c.programName) || null,
                 enabled: c.enabled !== false,
             };
