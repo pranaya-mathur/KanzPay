@@ -17,6 +17,9 @@
     "backend:ingest": "npm --prefix backend run pipeline:ingest",
     "pipeline": "npm run db:up && npm run backend:ingest",
     "validate:coverage": "node scripts/validate-bank-coverage.js",
+    "db:export-csv": "node scripts/export-databases-to-csv.js",
+    "db:export-csv:json": "node scripts/export-databases-to-csv.js --from-json",
+    "db:export-csv:live": "node scripts/export-databases-to-csv.js --live-only",
     "postinstall": "npx playwright install chromium || true"
   },
   "dependencies": {

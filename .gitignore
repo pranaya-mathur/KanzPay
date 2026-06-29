@@ -40,5 +40,9 @@ build/
 # Docker volumes (if any local data dirs)
 postgres-data/
 
+# Database exports (may contain PII)
+csv_exports/
+db_full_extract.json
+
 # Claude local session
 .claude/
