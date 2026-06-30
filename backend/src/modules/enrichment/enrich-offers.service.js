@@ -8,13 +8,9 @@ import {
     findOffersNeedingEnrichment,
     updateOfferEnrichment,
 } from '../offers/offers.repository.js';
-import { enrichOfferWithLlm, isEnrichmentAvailable } from './offer-llm-enrichment.service.js';
+import { enrichOfferWithLlm, isEnrichmentAvailable, sleep } from './offer-llm-enrichment.service.js';
 import { mergeEnrichmentIntoOffer, hasBlockingEnrichmentFlags } from './offer-field-merge.service.js';
 import { quarantineBlockingEnrichment } from './llm-quarantine.service.js';
-
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function createLlmEnrichRun(limit) {
     const { rows } = await query(

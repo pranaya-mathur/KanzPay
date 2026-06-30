@@ -3,9 +3,8 @@
  */
 import { findOffers } from '../offers/offers.repository.js';
 import { resolveMerchantSearchTerms } from '../merchants/merchants.repository.js';
+import config from '../../config.js';
 import logger from '../../shared/utils/logger.js';
-
-const CRAWL_COUPON_CONFIDENCE = 0.65;
 
 const CHECKOUT_OFFER_FILTERS = {
     freshnessStatus: 'fresh',
@@ -15,7 +14,7 @@ const CHECKOUT_OFFER_FILTERS = {
 function resolveVerifyRequired(offer) {
     if (offer.verifyRequired) return true;
     if (offer.validityStatus === 'unknown') return true;
-    return (offer.confidence ?? 0) < CRAWL_COUPON_CONFIDENCE;
+    return (offer.confidence ?? 0) < config.crawlCouponConfidence;
 }
 
 export { resolveVerifyRequired };
@@ -37,20 +36,23 @@ export async function fetchApplicableOffersWithCoupons(ctx) {
         if (ctx.merchantCategory) {
             queries.push(findOffers({ ...CHECKOUT_OFFER_FILTERS, category: ctx.merchantCategory, limit: 50 }));
         }
-        queries.push(findOffers({ ...CHECKOUT_OFFER_FILTERS, limit: 100 }));
 
-        const couponQuery = findOffers({
-            ...CHECKOUT_OFFER_FILTERS,
-            limit: 50,
-            ...(searchTerms[0] ? { merchant: searchTerms[0] } : {}),
-        });
-
-        const results = await Promise.all([...queries, couponQuery]);
+        const results = await Promise.all(queries);
         const allOffers = [];
         const seen = new Set();
 
         for (const r of results) {
             for (const o of r.data || []) {
+                if (seen.has(o.id)) continue;
+                seen.add(o.id);
+                allOffers.push(o);
+            }
+        }
+
+        // Only fall back to a broad unscoped query when no merchant-specific results were found.
+        if (allOffers.length === 0) {
+            const broad = await findOffers({ ...CHECKOUT_OFFER_FILTERS, limit: 100 });
+            for (const o of broad.data || []) {
                 if (seen.has(o.id)) continue;
                 seen.add(o.id);
                 allOffers.push(o);
@@ -86,7 +88,7 @@ export async function fetchApplicableOffersWithCoupons(ctx) {
                 applicableOffersMeta.push({
                     offerId: offer.id,
                     from: 'crawled',
-                    type: offer.discountType === 'coupon' ? 'coupon' : 'card_offer',
+                    type: offer.discountType === 'coupon' ? 'coupon' : 'cardOffer',
                     verifyRequired,
                     validityStatus: offer.validityStatus,
                     confidence: offer.confidence,
@@ -121,7 +123,7 @@ function offerToCouponInstrument(offer, verifyRequired) {
         enabled: true,
         source: 'crawled',
         offerId: offer.id,
-        verifyRequired: verifyRequired ?? offer.verifyRequired ?? ((offer.confidence ?? 0) < CRAWL_COUPON_CONFIDENCE),
+        verifyRequired: verifyRequired ?? offer.verifyRequired ?? ((offer.confidence ?? 0) < config.crawlCouponConfidence),
     };
 }
 

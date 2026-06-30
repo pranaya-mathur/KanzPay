@@ -47,7 +47,6 @@ export async function withRetry(fn, options = {}) {
             await sleep(baseDelayMs * (2 ** (attempt - 1)));
         }
     }
-    return null;
 }
 
 function buildSystemPrompt() {

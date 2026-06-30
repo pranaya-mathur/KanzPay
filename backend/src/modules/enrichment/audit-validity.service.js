@@ -8,13 +8,9 @@ import {
     findOffersForLlmAudit,
     updateOfferEnrichment,
 } from '../offers/offers.repository.js';
-import { auditOfferWithLlm, isEnrichmentAvailable } from '../enrichment/offer-llm-enrichment.service.js';
+import { auditOfferWithLlm, isEnrichmentAvailable, sleep } from '../enrichment/offer-llm-enrichment.service.js';
 import { mergeEnrichmentIntoOffer, hasBlockingEnrichmentFlags } from '../enrichment/offer-field-merge.service.js';
 import { deriveValidityStatus } from '../ingestion/validity.service.js';
-
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * @param {object} [options]

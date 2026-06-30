@@ -4,8 +4,6 @@
 import { deriveValidityStatus, shouldRequireVerification } from '../ingestion/validity.service.js';
 import config from '../../config.js';
 
-const PROTECTED_OVERWRITE_FIELDS = new Set(['bankName', 'merchantName', 'discountValue']);
-
 /**
  * @param {object} existing - Current offer row (camelCase)
  * @param {object} llm - Parsed LLM enrichment result
@@ -18,6 +16,8 @@ export function mergeEnrichmentIntoOffer(existing, llm) {
     const applied = [];
     const skipped = [];
 
+    // Only enrichable fields. Core identity fields (bankName, merchantName, discountValue)
+    // are intentionally excluded — they must never be overwritten by LLM extraction.
     const fieldMap = [
         ['validFrom', 'valid_from', existing.validFrom],
         ['validTo', 'valid_to', existing.validTo],
@@ -35,11 +35,6 @@ export function mergeEnrichmentIntoOffer(existing, llm) {
         const hasEvidence = evidenceByField.has(snakeKey) || evidenceByField.has(camelKey);
         const canFillNull = currentValue == null || currentValue === '';
         const canOverwrite = llm.confidence >= minAutoConfidence && hasEvidence;
-
-        if (PROTECTED_OVERWRITE_FIELDS.has(camelKey) && currentValue != null && !canOverwrite) {
-            skipped.push({ field: camelKey, reason: 'protected_field' });
-            continue;
-        }
 
         if (canFillNull || canOverwrite) {
             patch[camelKey] = normalizeFieldValue(camelKey, llmValue);

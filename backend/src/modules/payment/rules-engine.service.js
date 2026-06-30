@@ -258,7 +258,7 @@ function buildCombination(ctx, opts = {}) {
             couponResult = result;
             discountBreakdown.push({
                 type: 'coupon',
-                label: `${coupon.programName || coupon.code} (${coupon.discountValue}% flat)`,
+                label: `${coupon.programName || coupon.code} (${formatCouponDiscount(coupon)})`,
                 discountAed: result.discountAed,
             });
             totalDiscount += result.discountAed;
@@ -437,10 +437,13 @@ export function evaluatePaymentCombinations(ctx, applicableOffers = []) {
         }
     }
 
-    // Deduplicate on (card id, bank id, total discount) then sort by score DESC
+    // Deduplicate on (card id, bank id, total discount, active layer types) then sort by score DESC.
+    // Including layer types prevents two combinations with the same discount AED but different
+    // discount structures (e.g. coupon-only vs membership-only) from being collapsed.
     const seen = new Set();
     const unique = combinations.filter((c) => {
-        const key = `${c.card?.id ?? 'none'}::${c.bank?.id ?? 'none'}::${c.totalDiscount}`;
+        const layers = c.discountBreakdown.map((d) => d.type).sort().join(',');
+        const key = `${c.card?.id ?? 'none'}::${c.bank?.id ?? 'none'}::${c.totalDiscount}::${layers}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -602,6 +605,11 @@ function fuzzyMerchantMatch(offerMerchant, requestMerchant) {
     const a = offerMerchant.toLowerCase().replace(/[^a-z0-9]/g, '');
     const b = requestMerchant.toLowerCase().replace(/[^a-z0-9]/g, '');
     return a.includes(b) || b.includes(a);
+}
+
+function formatCouponDiscount(coupon) {
+    if (coupon.discountType === 'fixed') return `AED ${coupon.discountValue} off`;
+    return `${coupon.discountValue}% flat`;
 }
 
 function buildOpportunityLabel(rewards) {

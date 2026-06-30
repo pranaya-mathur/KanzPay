@@ -233,37 +233,40 @@ export async function findOffersNeedingEnrichment(limit = 100) {
 }
 
 export async function updateOfferEnrichment(offerId, patch) {
+    // Build SET clause dynamically so an explicit null in the patch clears the column
+    // (COALESCE would silently ignore it and keep the stale value).
+    const setClauses = [];
+    const params = [offerId];
+    let idx = 2;
+
+    const enrichableFields = [
+        ['validFrom',   'valid_from',   '::date'],
+        ['validTo',     'valid_to',     '::date'],
+        ['minSpend',    'min_spend',    '::numeric'],
+        ['capValue',    'cap_value',    '::numeric'],
+        ['cardName',    'card_name',    '::text'],
+        ['couponCode',  'coupon_code',  '::text'],
+        ['termsUrl',    'terms_url',    '::text'],
+    ];
+
+    for (const [jsKey, sqlCol, cast] of enrichableFields) {
+        if (Object.prototype.hasOwnProperty.call(patch, jsKey)) {
+            setClauses.push(`${sqlCol} = $${idx}${cast}`);
+            params.push(patch[jsKey] ?? null);
+            idx += 1;
+        }
+    }
+
+    setClauses.push(`validity_status = $${idx}`);       params.push(patch.validityStatus);              idx += 1;
+    setClauses.push(`verify_required = $${idx}`);       params.push(patch.verifyRequired ?? false);     idx += 1;
+    setClauses.push(`llm_enriched_at = NOW()`);
+    setClauses.push(`llm_confidence = $${idx}`);        params.push(patch.llmConfidence ?? null);       idx += 1;
+    setClauses.push(`llm_enrichment_json = $${idx}`);   params.push(JSON.stringify(patch.llmEnrichmentJson || {})); idx += 1;
+    setClauses.push(`updated_at = NOW()`);
+
     const { rows } = await query(
-        `UPDATE offers SET
-            valid_from = COALESCE($2, valid_from),
-            valid_to = COALESCE($3, valid_to),
-            min_spend = COALESCE($4, min_spend),
-            cap_value = COALESCE($5, cap_value),
-            card_name = COALESCE($6, card_name),
-            coupon_code = COALESCE($7, coupon_code),
-            terms_url = COALESCE($8, terms_url),
-            validity_status = $9,
-            verify_required = $10,
-            llm_enriched_at = NOW(),
-            llm_confidence = $11,
-            llm_enrichment_json = $12,
-            updated_at = NOW()
-         WHERE id = $1
-         RETURNING *`,
-        [
-            offerId,
-            patch.validFrom ?? null,
-            patch.validTo ?? null,
-            patch.minSpend ?? null,
-            patch.capValue ?? null,
-            patch.cardName ?? null,
-            patch.couponCode ?? null,
-            patch.termsUrl ?? null,
-            patch.validityStatus,
-            patch.verifyRequired ?? false,
-            patch.llmConfidence ?? null,
-            JSON.stringify(patch.llmEnrichmentJson || {}),
-        ],
+        `UPDATE offers SET ${setClauses.join(', ')} WHERE id = $1 RETURNING *`,
+        params,
     );
     return rowToOffer(rows[0]);
 }

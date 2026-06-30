@@ -29,6 +29,7 @@ export const config = {
     enrichmentBatchSize: Number(process.env.ENRICHMENT_BATCH_SIZE || 100),
     enrichmentMinConfidenceAuto: Number(process.env.ENRICHMENT_MIN_CONFIDENCE_AUTO || 0.85),
     enrichmentVerifyThreshold: Number(process.env.ENRICHMENT_VERIFY_THRESHOLD || 0.65),
+    crawlCouponConfidence: Number(process.env.CRAWL_COUPON_CONFIDENCE || 0.65),
     enrichmentDelayMs: Number(process.env.ENRICHMENT_DELAY_MS || 200),
     enrichmentMaxRetries: Number(process.env.ENRICHMENT_MAX_RETRIES || 3),
     auditLlmSampleSize: Number(process.env.AUDIT_LLM_SAMPLE_SIZE || 50),
@@ -37,7 +38,13 @@ export const config = {
         if (process.env.ELIGIBILITY_LLM_REVIEW_ENABLED === 'true') return true;
         return !!(process.env.OPENAI_API_KEY);
     })(),
-    jwtSecret: process.env.JWT_SECRET || 'kanzpay-dev-secret-change-in-production',
+    jwtSecret: (() => {
+        const secret = process.env.JWT_SECRET;
+        if (!secret && process.env.NODE_ENV === 'production') {
+            throw new Error('JWT_SECRET must be set in production');
+        }
+        return secret || 'kanzpay-dev-secret-change-in-production';
+    })(),
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
     supabaseUsersDbUrl: process.env.SUPABASE_USERS_DB_URL || null,
     supabaseSafegoldDbUrl: process.env.SUPABASE_SAFEGOLD_DB_URL || null,

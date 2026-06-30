@@ -2,10 +2,19 @@
  * Advisory eligibility review for borderline offers at checkout.
  * Does not change payAmount or combination ranking.
  */
+import OpenAI from 'openai';
 import { isAIEnabled } from './ai-recommendation.service.js';
 import config from '../../config.js';
 
-const CRAWL_COUPON_CONFIDENCE = 0.65;
+let _client = null;
+function getClient() {
+    if (!_client) {
+        const apiKey = config.openaiApiKey || process.env.OPENAI_API_KEY;
+        if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
+        _client = new OpenAI({ apiKey });
+    }
+    return _client;
+}
 
 /**
  * Deterministic eligibility review (no LLM) for borderline cases.
@@ -47,7 +56,7 @@ export function reviewEligibility(ctx, bestCombination, applicableOffersMeta = [
             }
         }
 
-        if (layer.type === 'cardOffer' || layer.type === 'card_offer') {
+        if (layer.type === 'cardOffer') {
             const meta = findCardOfferMeta(layer, applicableOffersMeta);
             if (meta) comboMeta.push(meta);
 
@@ -65,7 +74,7 @@ export function reviewEligibility(ctx, bestCombination, applicableOffersMeta = [
     }
 
     const uniqueComboMeta = dedupeMeta(comboMeta);
-    if (uniqueComboMeta.some((m) => (m.confidence ?? 1) < CRAWL_COUPON_CONFIDENCE)) {
+    if (uniqueComboMeta.some((m) => (m.confidence ?? 1) < config.crawlCouponConfidence)) {
         caveats.push('Some offers are from public sources with low extraction confidence.');
         risk = elevateRisk(risk, 'medium');
         needsReview = true;
@@ -116,9 +125,7 @@ export async function reviewEligibilityWithLlm(ctx, bestCombination, applicableO
 
     try {
         const prompt = buildEligibilityPrompt(ctx, bestCombination, applicableOffersMeta);
-        const client = await import('openai').then((m) => new m.default({
-            apiKey: config.openaiApiKey || process.env.OPENAI_API_KEY,
-        }));
+        const client = getClient();
 
         const response = await client.chat.completions.create({
             model: config.openaiEnrichmentModel,
@@ -135,21 +142,32 @@ export async function reviewEligibilityWithLlm(ctx, bestCombination, applicableO
         });
 
         const raw = response.choices?.[0]?.message?.content || '';
-        const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || '{}');
+        const parsed = JSON.parse(raw);
 
-        const mergedCaveats = [...new Set([
-            ...deterministic.caveats,
-            ...(Array.isArray(parsed.caveats) ? parsed.caveats : []),
-        ])];
+        const llmCaveats = Array.isArray(parsed.caveats)
+            ? parsed.caveats
+                .filter((c) => typeof c === 'string')
+                .map((c) => c.slice(0, 200))
+                .slice(0, 5)
+            : [];
+
+        const mergedCaveats = [...new Set([...deterministic.caveats, ...llmCaveats])];
+
+        const VALID_RISKS = new Set(['low', 'medium', 'high']);
+        const VALID_ACTIONS = new Set(['proceed', 'verify_before_pay', 'show_with_warning']);
+        const risk = VALID_RISKS.has(parsed.risk) ? parsed.risk : deterministic.risk;
+        const suggestedAction = VALID_ACTIONS.has(parsed.suggestedAction)
+            ? parsed.suggestedAction
+            : deterministic.suggestedAction;
 
         return {
-            risk: parsed.risk || deterministic.risk,
+            risk,
             caveats: mergedCaveats,
-            suggestedAction: parsed.suggestedAction || deterministic.suggestedAction,
+            suggestedAction,
             eligibilityReview: {
-                risk: parsed.risk || deterministic.risk,
+                risk,
                 caveats: mergedCaveats,
-                suggestedAction: parsed.suggestedAction || deterministic.suggestedAction,
+                suggestedAction,
                 aiReviewed: true,
             },
         };
@@ -168,7 +186,7 @@ function shouldTriggerLlmReview(deterministic, bestCombination, applicableOffers
             const coupon = resolveCouponFromLayer(layer, mergedCoupons, ctx.requestedAmount);
             if (coupon?.verifyRequired) return true;
         }
-        if (layer.type === 'cardOffer' || layer.type === 'card_offer') {
+        if (layer.type === 'cardOffer') {
             const meta = findCardOfferMeta(layer, applicableOffersMeta);
             if (meta?.verifyRequired) return true;
         }
