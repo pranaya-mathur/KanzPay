@@ -8,8 +8,15 @@ import { productionQuery, isProductionConnected } from '../../db/production-pool
 export async function getProductionPaymentMethods(productionUserId) {
     if (!isProductionConnected() || !productionUserId) return { banks: [], cards: [] };
 
+    // Production user_payment_methods uses flat columns (no provider_data JSONB).
+    // Actual columns confirmed from db_full_extract.json (2026-06-24):
+    //   type (BANK|CARD), bank_name, display_name, last4, card_brand,
+    //   lean_customer_id, lean_payment_source_id, lean_account_id,
+    //   ngenius_token, ngenius_card_token, is_default, status
     const { rows } = await productionQuery(
-        `SELECT id, user_id, type, provider, provider_data, is_default, status
+        `SELECT id, user_id, type, display_name, bank_name, last4, card_brand,
+                lean_customer_id, lean_payment_source_id, lean_account_id,
+                ngenius_token, ngenius_card_token, is_default, status
          FROM user_payment_methods
          WHERE user_id = $1 AND status = 'ACTIVE'
          ORDER BY is_default DESC, created_at ASC`,
@@ -20,41 +27,39 @@ export async function getProductionPaymentMethods(productionUserId) {
     const cards = [];
 
     for (const row of rows) {
-        const data = row.provider_data || {};
+        const rowType = (row.type || '').toUpperCase();
 
-        if (row.type === 'bank') {
+        if (rowType === 'BANK') {
             banks.push({
                 id: row.id,
-                bankName: data.bankName || data.bank_name || 'Bank',
-                accountNo: data.destinationId || data.destination_id || null,
-                leanCustomerId: data.customerId || data.customer_id || null,
-                leanDestinationId: data.destinationId || data.destination_id || null,
+                bankName: row.bank_name || row.display_name || 'Bank',
+                accountNo: row.lean_account_id || null,
+                leanCustomerId: row.lean_customer_id || null,
+                leanDestinationId: row.lean_payment_source_id || null,
                 isDefault: row.is_default,
-                provider: row.provider,
+                provider: 'lean',
                 enabled: true,
                 source: 'production',
             });
-        } else if (row.type === 'card') {
-            banks.push({});  // reset
+        } else if (rowType === 'CARD') {
             cards.push({
                 id: row.id,
-                bankName: data.bankName || data.bank_name || 'Card',
-                cardNetwork: data.cardBrand || data.card_brand || 'Unknown',
-                cardType: data.cardType || data.card_type || 'credit',
-                lastFour: data.last4 || data.lastFour || null,
-                ngeniusToken: data.ngeniusCardToken || data.ngenius_card_token || null,
+                bankName: row.bank_name || row.display_name || 'Card',
+                cardNetwork: row.card_brand || 'Unknown',
+                cardType: 'credit',
+                lastFour: row.last4 || null,
+                ngeniusToken: row.ngenius_card_token || row.ngenius_token || null,
                 rewardRatePerAed: 0,
                 goldMgPerAed: 0,
                 rewardUnit: 'points',
                 isDefault: row.is_default,
-                provider: row.provider,
+                provider: 'ngenius',
                 enabled: true,
                 source: 'production',
             });
         }
     }
 
-    // Remove the stray empty object pushed during card processing
     const cleanBanks = banks.filter((b) => b.id);
 
     return { banks: cleanBanks, cards };

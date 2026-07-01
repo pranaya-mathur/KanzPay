@@ -28,14 +28,7 @@ export async function getRecommend(req, res, next) {
 
 export async function confirmSession(req, res, next) {
     try {
-        const data = await checkout.confirmSession(
-            req.params.id,
-            req.user.id,
-            {
-                sellerUserId: req.body.sellerUserId,
-                paymentOption: req.body.paymentOption || 'bank',
-            },
-        );
+        const data = await checkout.confirmSession(req.params.id, req.user.id);
         return res.json({ success: true, data });
     } catch (err) {
         if (err.message?.includes('not found') || err.message?.includes('already confirmed')) {

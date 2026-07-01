@@ -20,6 +20,7 @@ function mapSession(row) {
         storeId: row.store_id || null,
         pointsRedemptionPct: row.points_redemption_pct != null ? Number(row.points_redemption_pct) : 100,
         productionUserId: row.production_user_id || null,
+        productionMerchantUserId: row.production_merchant_user_id || null,
         productionPaymentRequestId: row.production_payment_request_id || null,
         status: row.status,
         confirmedAt: row.confirmed_at || null,
@@ -34,6 +35,7 @@ export async function createSession(userId, {
     posId = null,
     storeId = null,
     productionUserId = null,
+    productionMerchantUserId = null,
 }) {
     if (!merchantId || !amount) throw new Error('merchantId and amount are required');
     const merchant = await findMerchantById(merchantId);
@@ -41,10 +43,12 @@ export async function createSession(userId, {
 
     const { rows } = await query(
         `INSERT INTO checkout_sessions
-           (user_id, merchant_id, requested_amount, currency, session_type, pos_id, store_id, production_user_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           (user_id, merchant_id, requested_amount, currency, session_type, pos_id, store_id,
+            production_user_id, production_merchant_user_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          RETURNING *`,
-        [userId, merchantId, amount, currency, sessionType, posId, storeId, productionUserId],
+        [userId, merchantId, amount, currency, sessionType, posId, storeId,
+            productionUserId, productionMerchantUserId],
     );
     return mapSession(rows[0]);
 }
@@ -164,12 +168,26 @@ export async function getSessionRecommendation(sessionId, userId, options = {}) 
  * Buyer presses "Pay Now" — lock the recommendation and create payment_request
  * in production Supabase so Lean/N-Genius gateway flow can proceed.
  */
-export async function confirmSession(sessionId, userId, { sellerUserId, paymentOption }) {
-    const session = await findSession(sessionId, userId);
-    if (!session) throw new Error('session not found');
-    if (session.status !== 'open') throw new Error('session already confirmed or closed');
+export async function confirmSession(sessionId, userId) {
+    // Atomically claim the session — prevents double-confirm race condition.
+    // If two requests arrive simultaneously, only one UPDATE wins; the other
+    // sees 0 rows and throws before any money moves.
+    const { rows: claimed } = await query(
+        `UPDATE checkout_sessions
+         SET status = 'confirmed', confirmed_at = NOW()
+         WHERE id = $1 AND user_id = $2 AND status = 'open'
+         RETURNING *`,
+        [sessionId, userId],
+    );
+    if (!claimed[0]) {
+        const exists = await findSession(sessionId, userId);
+        if (!exists) throw new Error('session not found');
+        throw new Error('session already confirmed or closed');
+    }
+    const session = mapSession(claimed[0]);
 
-    // Get final recommendation to capture net amount + breakdown
+    // Get final recommendation to capture net amount + breakdown.
+    // Session is already locked above — recommendation is advisory only at this point.
     const rec = await getSessionRecommendation(sessionId, userId, { skipAI: true });
 
     const grossAmount = rec.requestedAmount;
@@ -182,40 +200,58 @@ export async function confirmSession(sessionId, userId, { sellerUserId, paymentO
 
     let productionPaymentRequestId = null;
 
-    if (isProductionConnected() && session.productionUserId) {
-        const { rows } = await productionQuery(
-            `INSERT INTO payment_requests
-               (seller_user_id, buyer_user_id, amount_aed, net_amount_aed, gross_amount_aed,
-                payment_option, status, loyalty_redeemed_aed, coupon_discount_aed,
-                membership_discount_aed, discount_breakdown, checkout_session_id)
-             VALUES ($1,$2,$3,$4,$5,$6,'PENDING',$7,$8,$9,$10,$11)
-             RETURNING id`,
-            [
-                sellerUserId,
-                session.productionUserId,
-                netAmount,
-                netAmount,
-                grossAmount,
-                paymentOption || 'bank',
-                loyaltyAed,
-                couponAed,
-                membershipAed,
-                JSON.stringify(breakdown),
-                sessionId,
-            ],
-        );
-        productionPaymentRequestId = rows[0]?.id || null;
+    // sellerUserId comes from the session (set at creation), never from the confirm request body.
+    // Production payment_requests column names confirmed from db_full_extract.json (2026-06-24):
+    //   merchant_user_id (not seller_user_id), payer_user_id (not buyer_user_id),
+    //   amount (not amount_aed), status='PAYMENT_INITIATED'
+    //   gross_amount_aed, net_amount_aed, loyalty_redeemed_aed, coupon_discount_aed,
+    //   membership_discount_aed, discount_breakdown, checkout_session_id are NEW columns
+    //   added by the production migration — see backend/docs/production-migration-for-backend-team.sql
+    if (isProductionConnected() && session.productionUserId && session.productionMerchantUserId) {
+        try {
+            const { rows } = await productionQuery(
+                `INSERT INTO payment_requests
+                   (merchant_user_id, payer_user_id, amount, net_amount_aed, gross_amount_aed,
+                    status, loyalty_redeemed_aed, coupon_discount_aed,
+                    membership_discount_aed, discount_breakdown, checkout_session_id)
+                 VALUES ($1,$2,$3,$4,$5,'PAYMENT_INITIATED',$6,$7,$8,$9,$10)
+                 RETURNING id`,
+                [
+                    session.productionMerchantUserId,
+                    session.productionUserId,
+                    netAmount,
+                    netAmount,
+                    grossAmount,
+                    loyaltyAed,
+                    couponAed,
+                    membershipAed,
+                    JSON.stringify(breakdown),
+                    sessionId,
+                ],
+            );
+            productionPaymentRequestId = rows[0]?.id || null;
+        } catch (err) {
+            // Unique constraint on checkout_session_id — this session was already inserted
+            // (e.g. a prior request succeeded but the response was lost). Fetch the existing row.
+            if (err.code === '23505') {
+                const { rows } = await productionQuery(
+                    `SELECT id FROM payment_requests WHERE checkout_session_id = $1`,
+                    [sessionId],
+                );
+                productionPaymentRequestId = rows[0]?.id || null;
+            } else {
+                throw err;
+            }
+        }
     }
 
-    // Mark session confirmed in local DB
-    await query(
-        `UPDATE checkout_sessions
-         SET status = 'confirmed',
-             confirmed_at = NOW(),
-             production_payment_request_id = $2
-         WHERE id = $1`,
-        [sessionId, productionPaymentRequestId],
-    );
+    // Store the production payment request ID on the now-confirmed session.
+    if (productionPaymentRequestId) {
+        await query(
+            `UPDATE checkout_sessions SET production_payment_request_id = $2 WHERE id = $1`,
+            [sessionId, productionPaymentRequestId],
+        );
+    }
 
     return {
         sessionId,
@@ -225,7 +261,6 @@ export async function confirmSession(sessionId, userId, { sellerUserId, paymentO
         totalDiscount: rec.totalDiscount,
         discountBreakdown: breakdown,
         rewardsEarned: rec.rewardsEarned,
-        paymentOption: paymentOption || 'bank',
         nextStep: productionPaymentRequestId
             ? 'payment_request_created'
             : 'production_not_connected',

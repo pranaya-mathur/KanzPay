@@ -3,11 +3,16 @@
 -- Run on: Supabase Users DB (ariegorjlfenlzelwjsb)
 -- Purpose: Add discount/reward columns to payment_requests
 --          so KanzPay recommendation engine output is stored
+--
+-- UPDATED 2026-06-30: Fixed column names to match actual
+-- production schema confirmed in db_full_extract.json
 -- ============================================================
 
 BEGIN;
 
 -- Step 1: Add recommendation engine output columns to payment_requests
+-- NOTE: Production uses 'amount' (not 'amount_aed'), 'payer_user_id' (not 'buyer_user_id'),
+--       'merchant_user_id' (not 'seller_user_id'). These existing columns are untouched.
 ALTER TABLE payment_requests
     ADD COLUMN IF NOT EXISTS gross_amount_aed         NUMERIC(12,2),
     ADD COLUMN IF NOT EXISTS net_amount_aed            NUMERIC(12,2),
@@ -17,44 +22,65 @@ ALTER TABLE payment_requests
     ADD COLUMN IF NOT EXISTS discount_breakdown        JSONB DEFAULT '[]',
     ADD COLUMN IF NOT EXISTS checkout_session_id       UUID;
 
--- Backfill: existing rows — gross = net = amount_aed (no discounts applied before)
+-- Idempotency guard: one payment_request per checkout session.
+-- The KanzPay service uses error code 23505 to detect and recover from
+-- duplicate inserts on network retry without creating double charges.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_requests_checkout_session
+    ON payment_requests (checkout_session_id)
+    WHERE checkout_session_id IS NOT NULL;
+
+-- Backfill: for existing rows, gross = net = amount (no discounts applied before)
+-- Using 'amount' — the correct column name in production (not 'amount_aed')
 UPDATE payment_requests
-SET gross_amount_aed = amount_aed,
-    net_amount_aed   = amount_aed
+SET gross_amount_aed = amount,
+    net_amount_aed   = amount
 WHERE gross_amount_aed IS NULL;
 
--- Step 2: split_payment_groups table (missing from production — confirmed in DB extract)
-CREATE TABLE IF NOT EXISTS split_payment_groups (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    payment_request_id  UUID NOT NULL REFERENCES payment_requests(id) ON DELETE CASCADE,
-    buyer_user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    split_count         INT NOT NULL,
-    amount_per_split    NUMERIC(12,2) NOT NULL,
-    members             JSONB NOT NULL DEFAULT '[]',
-    status              VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_split_groups_payment_request ON split_payment_groups(payment_request_id);
-CREATE INDEX IF NOT EXISTS idx_split_groups_buyer ON split_payment_groups(buyer_user_id);
+-- NOTE: split_payment_groups already exists in production with its own schema.
+-- Do NOT run CREATE TABLE for it. The KanzPay recommendation engine does not
+-- write to split_payment_groups — it only reads/writes payment_requests.
 
 COMMIT;
 
 -- ============================================================
 -- NOTES FOR BACKEND TEAM
 -- ============================================================
--- 1. amount_aed column still exists and is the NET amount buyer pays
---    gross_amount_aed = original seller price before discounts
---    net_amount_aed   = same as amount_aed (redundant, for clarity)
+-- What this migration does:
+--   Adds 7 new columns to payment_requests. All are nullable / have defaults
+--   so existing app flows are unaffected.
 --
--- 2. discount_breakdown is a JSONB array, shape:
---    [
---      { "type": "loyalty",    "label": "LUNNA (4000 coins)", "discountAed": 40 },
---      { "type": "coupon",     "label": "Amazon Sale (10%)",  "discountAed": 16 },
---      { "type": "membership", "label": "FAZAA GOLD (10%)",   "discountAed": 14.4 }
---    ]
+-- New column meanings:
+--   gross_amount_aed   = Original seller price before any discounts (AED)
+--   net_amount_aed     = Final amount the buyer actually pays after discounts (AED)
+--                        Will equal 'amount' in most cases (that column is what
+--                        gets sent to the payment gateway)
+--   loyalty_redeemed_aed  = Discount from loyalty coins redemption
+--   coupon_discount_aed   = Discount from applied coupon code
+--   membership_discount_aed = Discount from membership tier (FAZAA, etc.)
+--   discount_breakdown = Full JSON audit trail, shape:
+--       [
+--         { "type": "loyalty",    "label": "LUNNA (4000 coins)", "discountAed": 40 },
+--         { "type": "coupon",     "label": "Amazon Sale (10%)",  "discountAed": 16 },
+--         { "type": "membership", "label": "FAZAA GOLD (10%)",   "discountAed": 14.4 }
+--       ]
+--   checkout_session_id = UUID linking back to the KanzPay recommendation engine
+--                         session (stored in local KanzPay backend DB, not Supabase).
+--                         UNIQUE (partial index, NULLs excluded) — prevents double charges
+--                         on network retry; the KanzPay service handles error code 23505.
 --
--- 3. checkout_session_id links back to KanzPay recommendation engine session
---    (stored in local KanzPay backend DB, not Supabase)
+-- What the KanzPay backend will INSERT when a buyer confirms payment:
+--   merchant_user_id        = seller's user_id
+--   payer_user_id           = buyer's user_id
+--   amount                  = net_amount_aed (what gateway will charge)
+--   status                  = 'PAYMENT_INITIATED'
+--   gross_amount_aed        = original price
+--   net_amount_aed          = amount after discounts
+--   loyalty_redeemed_aed    = loyalty discount applied
+--   coupon_discount_aed     = coupon discount applied
+--   membership_discount_aed = membership discount applied
+--   discount_breakdown      = full JSON breakdown (for receipt / audit)
+--   checkout_session_id     = recommendation session ID
+--
+-- No changes needed to split_payment_groups, payment_sessions, users, or
+-- user_payment_methods — those tables are read-only from the recommendation engine.
 -- ============================================================
